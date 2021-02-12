@@ -7,6 +7,7 @@ DEFINES+=CURL_STATICLIB
 
 DEFINES+=NOT_BAS_DEBUG
 
+QMAKE_LFLAGS += /LARGEADDRESSAWARE
 
 SOURCES += main.cpp \
     mainapp.cpp \
@@ -46,7 +47,6 @@ SOURCES += main.cpp \
     toolboxpreprocessor.cpp \
     replaceall.cpp \
     convertencoding.cpp \
-    fixcontentcharset.cpp \
     extract_resources.cpp \
 	handlersmanager.cpp \
     centralhandler.cpp \
@@ -57,12 +57,28 @@ SOURCES += main.cpp \
     urlnormalize.cpp \
     chromecommandlineparser.cpp \
     randomid.cpp \
-    CrashHandler.cpp
+    CrashHandler.cpp \
+    localstoragedata.cpp \
+    fixpagecontent.cpp \
+    fontreplace.cpp \
+    snappy/snappy.cc \
+    snappy/snappy-c.cc \
+    snappy/snappy-sinksource.cc \
+    snappy/snappy-stubs-internal.cc \
+    extract_labels.cpp \
+    postmanager.cpp \
+    highlightresult.cpp \
+    imagefinder.cpp \
+    writefile.cpp
 
 INCLUDEPATH += $(BAS_PATH_WORKER)/include
 
 
 LIBS += -L$(BAS_PATH_WORKER)/lib -llibiconv -llibcef -llibcef_dll_wrapper -lAdvapi32 -luser32 -lPsapi -lshell32 -lDbgHelp -lgdi32 -llibcurl -llibeay32 -lssleay32 -lnetwork-uri
+win32:LIBS += -lminhook
+win32:LIBS += -lMsimg32
+
+
 QMAKE_CXXFLAGS_RELEASE += /MT
 
 QMAKE_CXXFLAGS_DEBUG += /MTd
@@ -110,7 +126,6 @@ HEADERS += \
     toolboxpreprocessor.h \
     replaceall.h \
     convertencoding.h \
-    fixcontentcharset.h \
     extract_resources.h \
 	centralhandler.h \
     handlersmanager.h \
@@ -121,11 +136,28 @@ HEADERS += \
     urlnormalize.h \
     chromecommandlineparser.h \
     randomid.h \
-    CrashHandler.h
+    CrashHandler.h \
+    configurableitem.h \
+    localstoragedata.h \
+    fixpagecontent.h \
+    fontreplace.h \
+    snappy/snappy.h \
+    snappy/snappy-c.h \
+    snappy/snappy-internal.h \
+    snappy/snappy-sinksource.h \
+    snappy/snappy-stubs-internal.h \
+    snappy/snappy-stubs-public.h \
+    extract_labels.h \
+    postmanager.h \
+    highlightresult.h \
+    imagefinder.h \
+    writefile.h
 
-INCLUDEPATH += xml json png
+INCLUDEPATH += xml json png snappy
 
 win32:RC_FILE = main.rc
+
+win32:LIBS += -lopencv_core320 -lopencv_imgproc320 -lzlib
 
 DISTFILES += \
     main.rc

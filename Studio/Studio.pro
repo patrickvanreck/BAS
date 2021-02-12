@@ -11,6 +11,8 @@ greaterThan(QT_MAJOR_VERSION, 4) {
     DEFINES += HAVE_QT5
 }
 
+DEFINES += NO_BAS_DEBUG
+
 #DEFINES += MEMORY_DEBUG
 #SOURCES += debug_memory/debug_new.cpp
 TARGET = BrowserAutomationStudio
@@ -20,7 +22,8 @@ SOURCES += main.cpp \
     compilewindow.cpp \
     compiler.cpp \
     recentswidget.cpp \
-    singleapplication.cpp
+    singleapplication.cpp \
+    databasestatedialog.cpp
 
 
 INCLUDEPATH += debug_memory
@@ -31,11 +34,13 @@ HEADERS += mainwindow.h \
     compiler.h \
     every_cpp.h \
     recentswidget.h \
-    singleapplication.h
+    singleapplication.h \
+    databasestatedialog.h
 
 FORMS += mainwindow.ui \
     compilewindow.ui \
-    recentswidget.ui
+    recentswidget.ui \
+    databasestatedialog.ui
 
 RESOURCES += \
     studio.qrc
@@ -70,6 +75,8 @@ unix{
 LIBS += -lqscintilla2
 
 win32:LIBS += -llibcurl
+
+win32:LIBS += -lUser32
 
 win32:LIBS += -llibeay32 -lssleay32
 

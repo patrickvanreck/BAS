@@ -1,6 +1,9 @@
 {
 	
 	"name":"Processes",
+	"info":{"en": "This module can run any batch or exe file.", "ru": "Этот модуль может запускать любой bat или exe файл."},
+
+	"icon":"processes.png",
 	"description":"Run Process",
 	"description_small":{"en": "Process Manager", "ru": "Управление Процессами"},
 	"major_version": 1,
@@ -14,7 +17,8 @@
 		{
 			"name":"ExecuteProcess",
 			"description":{"en": "Run Process","ru": "Запустить Процесс"},
-			"template":"{{Location}} -> {{Save}}",
+			"suggestion":{"en": "exe batch","ru": "бат батч"},
+			"template":"{{Command}} -> {{Save}}",
 			"is_element": false,
 			"interface": "execute_process_interface.js",
 			"select": "execute_process_select.js",
@@ -26,7 +30,7 @@
 	{
 		"Wait while process will finish": {"ru": "Ждать завершения"},
 		"Command line": {"ru": "Аргументы командной строки"},
-		"Executable location": {"ru": "Месторасположение exe"}
+		"Command": {"ru": "Комманда"}
 	},
 	"engine": [],
 	"browser": [],

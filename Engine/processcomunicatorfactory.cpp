@@ -1,7 +1,6 @@
 #include "processcomunicatorfactory.h"
 #include "pipesprocesscomunicator.h"
 #include <QCoreApplication>
-
 #include "every_cpp.h"
 
 
@@ -15,6 +14,7 @@ namespace BrowserAutomationStudioFramework
         Server = new QLocalServer(this);
         connect(Server,SIGNAL(newConnection()),this,SLOT(NewConnection()));
         Server->listen(QString("\\\\.\\pipe\\basworkerpipes") + QString::number(qApp->applicationPid()));
+        Compress = new SnappyStringCompress(this);
     }
 
     void ProcessComunicatorFactory::NewConnection()
@@ -53,7 +53,7 @@ namespace BrowserAutomationStudioFramework
         QLocalSocket *Client = FindLocalServerByKey(key);
         if(Client)
         {
-            Client->write(QString("<Messages>" + data + "</Messages>").toUtf8());
+            Client->write(QString("<Messages>" + Compress->Compress(data) + "</Messages>").toUtf8());
             Client->flush();
         }else
         {
@@ -146,10 +146,10 @@ namespace BrowserAutomationStudioFramework
                     if(e>=0)
                     {
                         changed = true;
-                        QString mid = str.mid(s,e-s+11);
+                        QString mid = str.mid(s + 10,e-s-10);
                         str.remove(0,e+11);
 
-                        emit Received(Data->key, mid);
+                        emit Received(Data->key, "<Messages>" + Compress->Uncompress(mid) + "</Messages>");
                         cont = true;
                     }
                 }
@@ -172,7 +172,6 @@ namespace BrowserAutomationStudioFramework
         connect(this,SIGNAL(KeyStart(QString)),res,SLOT(ProcessStartedAll(QString)));
         connect(this,SIGNAL(SocketStoped(QString)),res,SLOT(ProcessStoppedAll(QString)));
 
-        res->SetLocation(ProcessName);
         res->SetCommandLineParams(Params);
         emit ProcessComunicatorCreated(res);
         return res;
@@ -183,8 +182,4 @@ namespace BrowserAutomationStudioFramework
         this->Params = Params;
     }
 
-    void ProcessComunicatorFactory::SetProcessName(const QString& ProcessName)
-    {
-        this->ProcessName = ProcessName;
-    }
 }

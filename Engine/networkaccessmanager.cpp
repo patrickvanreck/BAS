@@ -24,9 +24,15 @@ namespace BrowserAutomationStudioFramework
         connect(CaptureManager,SIGNAL(UrlLoad(QString, int)),this,SLOT(UrlLoad(QString, int)));
     }
 
-    void NetworkAccessManager::AddHeader(const QString& name,const QString& value, const QString& callback)
+    void NetworkAccessManager::AddHeader(const QString& name,const QString& value,const QString& target, const QString& callback)
     {
         CaptureManager->AddHeader(name,value);
+        Worker->SetScript(callback);
+        Worker->RunSubScript();
+    }
+
+    void NetworkAccessManager::SetHeaderList(const QString& json,const QString& callback)
+    {
         Worker->SetScript(callback);
         Worker->RunSubScript();
     }
@@ -40,7 +46,7 @@ namespace BrowserAutomationStudioFramework
 
 
 
-    void NetworkAccessManager::SetProxy(const QString& server, int Port, bool IsHttp, const QString& name, const QString& password, const QString& callback)
+    void NetworkAccessManager::SetProxy(const QString& server, int Port, bool IsHttp, const QString& name, const QString& password,const QString& target, const QString& callback)
     {
         if(server.isEmpty() || Port<=0)
         {
@@ -185,6 +191,29 @@ namespace BrowserAutomationStudioFramework
         LoadedUrls.clear();
         RequestMask.clear();
         CacheMask.clear();
+        Worker->SetScript(callback);
+        Worker->RunSubScript();
+    }
+
+    void NetworkAccessManager::RestrictPopups(const QString& callback)
+    {
+        Worker->SetScript(callback);
+        Worker->RunSubScript();
+    }
+
+    void NetworkAccessManager::AllowPopups(const QString& callback)
+    {
+        Worker->SetScript(callback);
+        Worker->RunSubScript();
+    }
+
+    void NetworkAccessManager::RestrictDownloads(const QString& callback)
+    {
+        Worker->SetScript(callback);
+        Worker->RunSubScript();
+    }
+    void NetworkAccessManager::AllowDownloads(const QString& callback)
+    {
         Worker->SetScript(callback);
         Worker->RunSubScript();
     }

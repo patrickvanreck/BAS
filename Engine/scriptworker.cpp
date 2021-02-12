@@ -1,6 +1,7 @@
 #include "scriptworker.h"
 #include "debugterminate.h"
 #include "csvhelperwrapper.h"
+#include <limits>
 #include "every_cpp.h"
 
 namespace BrowserAutomationStudioFramework
@@ -8,9 +9,51 @@ namespace BrowserAutomationStudioFramework
 
 
     ScriptWorker::ScriptWorker(QObject *parent) :
-        IWorker(parent), Browser(0), Logger(0), Results1(0),Results2(0), Results3(0),Results4(0),Results5(0),Results6(0),Results7(0),Results8(0),Results9(0), Waiter(0),engine(0),ThreadNumber(0),IsAborted(false),ProcessComunicator(0), HttpClient1(0), HttpClient2(0), Pop3Client(0), ImapClient(0), DoTrace(false), MaxFail(999999), MaxSuccess(100), IsFailExceedRunning(false), IsSuccessExceedRunning(false), FunctionData(0), CurrentWebElement(0), HttpClientIndex(1)
+        IWorker(parent), Browser(0), Logger(0), Results1(0),Results2(0), Results3(0),Results4(0),Results5(0),Results6(0),Results7(0),Results8(0),Results9(0), Waiter(0),engine(0),ThreadNumber(0),IsAborted(false),ProcessComunicator(0), HttpClient1(0), HttpClient2(0), Pop3Client(0), ImapClient(0), DoTrace(false), MaxFail(999999), MaxSuccess(100), IsFailExceedRunning(false), IsSuccessExceedRunning(false), FunctionData(0), CurrentWebElement(0), HttpClientIndex(1),DieInstant(false), DontCreateMore(false), SuccessNumber(0), FailNumber(0), HttpClientNextTimeout(-1), SolverNotFailNextTime(false), SubstageId(0), SubstageParentId(0), CurrentAction(-1)
     {
+    }
 
+
+    void ScriptWorker::SetSuccessNumber(qint64* SuccessNumber)
+    {
+        this->SuccessNumber = SuccessNumber;
+    }
+    qint64 ScriptWorker::GetSuccessNumber()
+    {
+        if(!SuccessNumber)
+            return -1;
+        return *SuccessNumber;
+    }
+
+    void ScriptWorker::SetFailNumber(qint64* FailNumber)
+    {
+        this->FailNumber = FailNumber;
+    }
+    qint64 ScriptWorker::GetFailNumber()
+    {
+        if(!FailNumber)
+            return -1;
+        return *FailNumber;
+    }
+
+    void ScriptWorker::SetProjectPath(const QString& Path)
+    {
+        this->ProjectPath = Path;
+    }
+    QString ScriptWorker::GetProjectPath()
+    {
+        return ProjectPath;
+    }
+
+
+    bool ScriptWorker::IsDieInstant()
+    {
+        return DieInstant;
+    }
+
+    bool ScriptWorker::IsDontCreateMore()
+    {
+        return DontCreateMore;
     }
 
     IHttpClient* ScriptWorker::GetActualHttpClient()
@@ -28,6 +71,7 @@ namespace BrowserAutomationStudioFramework
 
     ScriptWorker::~ScriptWorker()
     {
+
         for(FunctionRunData* func:FunctionDataList)
             func->Stop();
         FunctionDataList.clear();
@@ -118,6 +162,16 @@ namespace BrowserAutomationStudioFramework
         this->ProcessComunicator = ProcessComunicator;
     }
 
+    void ScriptWorker::SetStringBuilder(IStringBuilder *StringBuilder)
+    {
+        this->StringBuilder = StringBuilder;
+    }
+
+    IStringBuilder * ScriptWorker::GetStringBuilder()
+    {
+        return StringBuilder;
+    }
+
     IProcessComunicator * ScriptWorker::GetProcessComunicator()
     {
         return ProcessComunicator;
@@ -135,11 +189,11 @@ namespace BrowserAutomationStudioFramework
     }
 
 
-    void ScriptWorker::SetThreadNumber(int ThreadNumber)
+    void ScriptWorker::SetThreadNumber(qint64 ThreadNumber)
     {
         this->ThreadNumber = ThreadNumber;
     }
-    int ScriptWorker::GetThreadNumber()
+    qint64 ScriptWorker::GetThreadNumber()
     {
         return ThreadNumber;
     }
@@ -415,7 +469,7 @@ namespace BrowserAutomationStudioFramework
             if(Waiter)
                 Waiter->Stop();
 
-            Fail(tr("Aborted By User"));
+            Fail(tr("Aborted By User"),false);
         }
     }
 
@@ -424,7 +478,6 @@ namespace BrowserAutomationStudioFramework
     {
         ResultMessage = "Ok";
         ResultStatus = IWorker::SuccessStatus;
-
 
         engine = new QScriptEngine(this);
         NeedToSetAsyncResult = false;
@@ -501,9 +554,6 @@ namespace BrowserAutomationStudioFramework
             engine->globalObject().setProperty(i.key(), Value);
             i++;
         }
-
-        engine->globalObject().setProperty("ThreadNumber", ThreadNumber);
-
         Browser->SetScriptResources(ScriptResources);
 
         foreach(QString script, ScriptResources->GetEngineScripts())
@@ -516,7 +566,6 @@ namespace BrowserAutomationStudioFramework
             QString Script = AdditionalScripts->at(i);
             engine->evaluate(Script);
         }
-
         RunSubScript();
     }
 
@@ -662,7 +711,7 @@ namespace BrowserAutomationStudioFramework
         return GetPreprocessor()->Preprocess(script, 0);
     }
 
-    void ScriptWorker::Fail(const QString& message)
+    void ScriptWorker::Fail(const QString& message, bool dont_create_more)
     {
 
         if(!FailFunction.isEmpty() && MaxFail <= 0 && !FailExceedFunction.isEmpty())
@@ -703,6 +752,7 @@ namespace BrowserAutomationStudioFramework
                 RunSubScript();
             }else
             {
+                DontCreateMore = dont_create_more;
                 ResultMessage = Message;
                 ResultStatus = IWorker::FailStatus;
                 Abort(true);
@@ -716,7 +766,7 @@ namespace BrowserAutomationStudioFramework
         this->MaxFail = MaxFail;
     }
 
-    void ScriptWorker::Die(const QString& message)
+    void ScriptWorker::Die(const QString& message, bool instant)
     {
         if(IsRecord)
         {
@@ -726,6 +776,7 @@ namespace BrowserAutomationStudioFramework
             RunSubScript();
         }else
         {
+            DieInstant = instant;
             ResultMessage = message;
             ResultStatus = IWorker::DieStatus;
             Abort(true);
@@ -807,7 +858,7 @@ namespace BrowserAutomationStudioFramework
 
     void ScriptWorker::FailProcessFinished()
     {
-        Fail(tr("Failed because process is stopped"));
+        Fail(tr("Failed because process is stopped"), false);
     }
 
     void ScriptWorker::FailBecauseOfTimeout()
@@ -817,13 +868,18 @@ namespace BrowserAutomationStudioFramework
         if(HttpClient2)
             HttpClient2->Stop();
 
-        Fail(FailMessage);
+        Fail(FailMessage, false);
     }
 
     void ScriptWorker::Sleep(int msec, const QString& callback)
     {
         Script = callback;
         Waiter->Sleep(msec,this,SLOT(RunSubScript()));
+    }
+
+    QString ScriptWorker::Spintax(const QString& Text)
+    {
+        return StringBuilder->Expand(Text);
     }
 
     void ScriptWorker::Suspend(int msec, const QString& callback)
@@ -860,6 +916,20 @@ namespace BrowserAutomationStudioFramework
 
     static QScriptValue prepare(QScriptEngine *engine, IWebElement* web);
 
+    static QScriptValue prototype_nowait(QScriptContext *ctx, QScriptEngine *engine)
+    {
+        IWebElement *web = qobject_cast<IWebElement*>(ctx->thisObject().toQObject());
+        if(!web)
+        {
+            return engine->undefinedValue();
+        }
+        if(ctx->argumentCount()!=0)
+        {
+            return engine->undefinedValue();
+        }
+        return prepare(engine,web->nowait());
+    }
+
     static QScriptValue prototype_css(QScriptContext *ctx, QScriptEngine *engine)
     {
         IWebElement *web = qobject_cast<IWebElement*>(ctx->thisObject().toQObject());
@@ -874,6 +944,20 @@ namespace BrowserAutomationStudioFramework
         return prepare(engine,web->css(ctx->argument(0).toString()));
     }
 
+    static QScriptValue prototype_xpath(QScriptContext *ctx, QScriptEngine *engine)
+    {
+        IWebElement *web = qobject_cast<IWebElement*>(ctx->thisObject().toQObject());
+        if(!web)
+        {
+            return engine->undefinedValue();
+        }
+        if(ctx->argumentCount()!=1)
+        {
+            return engine->undefinedValue();
+        }
+        return prepare(engine,web->xpath(ctx->argument(0).toString()));
+    }
+
     static QScriptValue prototype_frame(QScriptContext *ctx, QScriptEngine *engine)
     {
         IWebElement *web = qobject_cast<IWebElement*>(ctx->thisObject().toQObject());
@@ -886,6 +970,48 @@ namespace BrowserAutomationStudioFramework
             return engine->undefinedValue();
         }
         return prepare(engine,web->frame(ctx->argument(0).toString()));
+    }
+
+    static QScriptValue prototype_frame_css(QScriptContext *ctx, QScriptEngine *engine)
+    {
+        IWebElement *web = qobject_cast<IWebElement*>(ctx->thisObject().toQObject());
+        if(!web)
+        {
+            return engine->undefinedValue();
+        }
+        if(ctx->argumentCount()!=1)
+        {
+            return engine->undefinedValue();
+        }
+        return prepare(engine,web->frame_css(ctx->argument(0).toString()));
+    }
+
+    static QScriptValue prototype_frame_element(QScriptContext *ctx, QScriptEngine *engine)
+    {
+        IWebElement *web = qobject_cast<IWebElement*>(ctx->thisObject().toQObject());
+        if(!web)
+        {
+            return engine->undefinedValue();
+        }
+        if(ctx->argumentCount()!=0)
+        {
+            return engine->undefinedValue();
+        }
+        return prepare(engine,web->frame_element());
+    }
+
+    static QScriptValue prototype_frame_match(QScriptContext *ctx, QScriptEngine *engine)
+    {
+        IWebElement *web = qobject_cast<IWebElement*>(ctx->thisObject().toQObject());
+        if(!web)
+        {
+            return engine->undefinedValue();
+        }
+        if(ctx->argumentCount()!=1)
+        {
+            return engine->undefinedValue();
+        }
+        return prepare(engine,web->frame_match(ctx->argument(0).toString()));
     }
 
     static QScriptValue prototype_position(QScriptContext *ctx, QScriptEngine *engine)
@@ -945,6 +1071,21 @@ namespace BrowserAutomationStudioFramework
         return prepare(engine,web->all(ctx->argument(0).toString()));
     }
 
+    static QScriptValue prototype_xpath_all(QScriptContext *ctx, QScriptEngine *engine)
+    {
+        IWebElement *web = qobject_cast<IWebElement*>(ctx->thisObject().toQObject());
+        if(!web)
+        {
+            return engine->undefinedValue();
+        }
+        if(ctx->argumentCount()!=1)
+        {
+            return engine->undefinedValue();
+        }
+
+        return prepare(engine,web->xpath_all(ctx->argument(0).toString()));
+    }
+
     static QScriptValue prototype_match_all(QScriptContext *ctx, QScriptEngine *engine)
     {
         IWebElement *web = qobject_cast<IWebElement*>(ctx->thisObject().toQObject());
@@ -974,9 +1115,15 @@ namespace BrowserAutomationStudioFramework
 
         QScriptValue res = engine->newQObject(web);
         res.setProperty("css", engine->newFunction(prototype_css));
+        res.setProperty("nowait", engine->newFunction(prototype_nowait));
+        res.setProperty("xpath", engine->newFunction(prototype_xpath));
         res.setProperty("frame", engine->newFunction(prototype_frame));
+        res.setProperty("frame_css", engine->newFunction(prototype_frame_css));
+        res.setProperty("frame_element", engine->newFunction(prototype_frame_element));
+        res.setProperty("frame_match", engine->newFunction(prototype_frame_match));
         res.setProperty("position", engine->newFunction(prototype_position));
         res.setProperty("all", engine->newFunction(prototype_all));
+        res.setProperty("xpath_all", engine->newFunction(prototype_xpath_all));
         res.setProperty("match", engine->newFunction(prototype_match));
         res.setProperty("match_all", engine->newFunction(prototype_match_all));
         res.setProperty("at", engine->newFunction(prototype_at));
@@ -1088,7 +1235,7 @@ namespace BrowserAutomationStudioFramework
         if(DieOnFailHandler)
         {
 
-            Die(tr("failed to get resource ") + LastHandlerName);
+            Die(tr("All data have been processed for ") + LastHandlerName, false);
         }else
         {
             engine->evaluate("_set_result(null)");
@@ -1110,13 +1257,34 @@ namespace BrowserAutomationStudioFramework
             return PrepareMessage(tr("Thread suspended"));
         }
 
+        bool ShowActionId = false;
+
         switch(ResultStatus)
         {
-            case IWorker::FailStatus: status = tr("Thread failed"); break;
-            case IWorker::DieStatus: status = tr("Thread died"); break;
+            case IWorker::FailStatus: ShowActionId = true; status = tr("Thread ended"); break;
+            case IWorker::DieStatus: status = tr("Thread ended"); break;
             case IWorker::SuccessStatus: status = tr("Thread succeeded"); break;
         }
-        return PrepareMessage(status + tr(" with message \"") + ResultMessage + "\"");
+        QString text = status + tr(" with message \"") + ResultMessage + "\"";
+        if(ShowActionId)
+        {
+            text = PrepareMessage(text);
+        }else
+        {
+            text = PrepareMessageNoId(text);
+        }
+        return text;
+    }
+
+    QString ScriptWorker::GetResultMessageRawWithId()
+    {
+        QString result;
+        if(CurrentAction >= 0)
+        {
+            result += QString("[") + QString::number(CurrentAction) + QString("] ");
+        }
+        result += ResultMessage;
+        return result;
     }
 
     QString ScriptWorker::GetResultMessageRaw()
@@ -1124,29 +1292,62 @@ namespace BrowserAutomationStudioFramework
         return ResultMessage;
     }
 
+    void ScriptWorker::SetCurrentAction(qint64 CurrentAction)
+    {
+        this->CurrentAction = CurrentAction;
+    }
+
     QString ScriptWorker::PrepareMessage(const QString &message)
     {
         QString status;
         QString datestring = QTime::currentTime().toString("hh:mm:ss");
-        status  = "[" + datestring + "] " + tr("Thread #") + QString::number(ThreadNumber) + " : " + message;
+        if(CurrentAction >= 0)
+        {
+            status += QString("[") + QString::number(CurrentAction) + QString("] ");
+        }
+        status  += "[" + datestring + "]";
+
+        status += QString(" ") + tr("Thread #") + QString::number(ThreadNumber) + " : " + message;
+        return status;
+    }
+
+    QString ScriptWorker::PrepareMessageNoId(const QString &message)
+    {
+        QString status;
+        QString datestring = QTime::currentTime().toString("hh:mm:ss");
+
+        status  += "[" + datestring + "]";
+
+        status += QString(" ") + tr("Thread #") + QString::number(ThreadNumber) + " : " + message;
         return status;
     }
 
 
 
-    void ScriptWorker::Solve(const QString& method, const QString& base64,const QString& callback)
+    void ScriptWorker::SolveInternal(const QString& method, const QString& base64, const QStringList & params,const QString& callback)
     {
         engine->globalObject().setProperty("LAST_CAPTCHA_ID", "");
         ISolver* solver = GetSolverFactory()->GetSolver(method);
         if(!solver)
         {
-            Fail(tr("CAPTCHA_FAIL") + " : " + tr("Failed to get solver"));
+            Fail(tr("CAPTCHA_FAIL") + " : " + tr("Failed to get solver"), false);
             return;
         }
         Script = callback;
 
-        QString id = solver->Solve(base64);
+        QString id = solver->Solve(base64,params);
         GetWaiter()->WaitForSolver(solver,id,this,SLOT(SolverSuccess()),this,SLOT(SolverFailed()));
+    }
+
+    void ScriptWorker::Solve(const QString& method, const QString& base64, const QStringList & params,const QString& callback)
+    {
+        SolverNotFailNextTime = false;
+        SolveInternal(method, base64,params, callback);
+    }
+    void ScriptWorker::SolveNoFail(const QString& method, const QString& base64, const QStringList & params,const QString& callback)
+    {
+        SolverNotFailNextTime = true;
+        SolveInternal(method, base64,params, callback);
     }
 
     void ScriptWorker::SolverSuccess()
@@ -1155,10 +1356,13 @@ namespace BrowserAutomationStudioFramework
         QString id = GetWaiter()->GetLastSolverId();
         engine->globalObject().setProperty("LAST_CAPTCHA_ID", id);
 
-        if(res.startsWith("CAPTCHA_FAIL"))
+        if(!SolverNotFailNextTime)
         {
-            Fail(res.replace("CAPTCHA_FAIL",tr("CAPTCHA_FAIL")));
-            return;
+            if(res.startsWith("CAPTCHA_FAIL"))
+            {
+                Fail(res.replace("CAPTCHA_FAIL",tr("CAPTCHA_FAIL")), false);
+                return;
+            }
         }
         SetAsyncResult(QScriptValue(res));
 
@@ -1169,7 +1373,7 @@ namespace BrowserAutomationStudioFramework
     void ScriptWorker::SolverFailed()
     {
         engine->globalObject().setProperty("LAST_CAPTCHA_ID", "");
-        Fail(tr("Captcha wait timeout"));
+        Fail(tr("Captcha wait timeout"), false);
     }
 
     QString ScriptWorker::ExecuteNativeModuleCodeSync(const QString& DllName, const QString& FunctionName, const QString& InputParam)
@@ -1177,12 +1381,12 @@ namespace BrowserAutomationStudioFramework
         std::shared_ptr<FunctionRunData> FunctionDataInternal(ModuleManager->PrepareExecuteFunction(DllName,FunctionName,InputParam,GetThreadNumber()));
         if(FunctionDataInternal->IsError)
         {
-            Fail(QString::fromStdString(FunctionDataInternal->ErrorString));
+            Fail(QString::fromStdString(FunctionDataInternal->ErrorString), false);
             return QString();
         }
         if(FunctionDataInternal->IsAync)
         {
-            Fail(tr("Async function is called in sync mode"));
+            Fail(tr("Async function is called in sync mode"), false);
             return QString();
         }
 
@@ -1190,7 +1394,7 @@ namespace BrowserAutomationStudioFramework
 
         if(FunctionDataInternal->ExecuteError)
         {
-            Fail(tr("Failed to run function ") + DllName + QString(".") + FunctionName);
+            Fail(tr("Failed to run function ") + DllName + QString(".") + FunctionName, false);
             return QString();
         }
 
@@ -1203,13 +1407,13 @@ namespace BrowserAutomationStudioFramework
         FunctionData = ModuleManager->PrepareExecuteFunction(DllName,FunctionName,InputParam,GetThreadNumber());
         if(FunctionData->IsError)
         {
-            Fail(QString::fromStdString(FunctionData->ErrorString));
+            Fail(QString::fromStdString(FunctionData->ErrorString), false);
             delete FunctionData;
             return;
         }
         if(!FunctionData->IsAync)
         {
-            Fail(tr("Sync function is called in async mode"));
+            Fail(tr("Sync function is called in async mode"), false);
             delete FunctionData;
             return;
         }
@@ -1254,7 +1458,7 @@ namespace BrowserAutomationStudioFramework
             return;
         if(FunctionData->ExecuteError)
         {
-            Fail(tr("Failed to run function ") + FunctionData->DllName + QString(".") + FunctionData->FunctionName);
+            Fail(tr("Failed to run function ") + FunctionData->DllName + QString(".") + FunctionData->FunctionName, false);
         }else
         {
             QString Result = QString::fromUtf8(FunctionData->OutputJson.data(),FunctionData->OutputJson.size());
@@ -1316,10 +1520,22 @@ namespace BrowserAutomationStudioFramework
             Waiter->SetGeneralWaitTimeout(timeout);
     }
 
+    void ScriptWorker::SetGeneralWaitTimeoutNext(int timeout)
+    {
+        if(Waiter)
+            Waiter->SetGeneralWaitTimeoutNext(timeout);
+    }
+
     void ScriptWorker::SetSolverWaitTimeout(int timeout)
     {
         if(Waiter)
             Waiter->SetSolverWaitTimeout(timeout);
+    }
+
+    void ScriptWorker::SetSolverWaitTimeoutNext(int timeout)
+    {
+        if(Waiter)
+            Waiter->SetSolverWaitTimeoutNext(timeout);
     }
 
     /* ImapClient */
@@ -1407,14 +1623,26 @@ namespace BrowserAutomationStudioFramework
     {
 
         QString Location = GetActualHttpClient()->GetHeader("Location");
+
         //Relative location
         while(Location.startsWith("."))
             Location.remove(0,1);
 
-        if(Location.startsWith("/"))
+        if(Location.startsWith("//"))
         {
             QUrl url = QUrl(GetActualHttpClient()->GetLastUrl());
-            url.setPath(Location);
+
+            QUrl urllocation = QUrl(Location);
+            urllocation.setScheme(url.scheme());
+            Location = urllocation.toString();
+
+        }else if(Location.startsWith("/"))
+        {
+            QUrl url = QUrl(GetActualHttpClient()->GetLastUrl());
+            QUrl urllocation = QUrl(Location);
+            url.setPath(urllocation.path());
+            url.setQuery(urllocation.query());
+            url.setFragment(urllocation.fragment());
 
             Location = url.toString();
         }
@@ -1424,11 +1652,15 @@ namespace BrowserAutomationStudioFramework
             SetFailMessage(tr("Failed to get page ") + Location + tr(" with HttpClient"));
             if(IsGet)
             {
-                Waiter->WaitInfinity(GetActualHttpClient(),SIGNAL(Finished()),this,SLOT(FollowRedirect()));
+                if(HttpClientNextTimeout >= 0)
+                    Waiter->SetGeneralWaitTimeoutNext(HttpClientNextTimeout);
+                Waiter->WaitForSignal(GetActualHttpClient(),SIGNAL(Finished()),this,SLOT(FollowRedirect()),this,SLOT(FailBecauseOfTimeout()));
                 GetActualHttpClient()->Get(Location);
             }else
             {
-                Waiter->WaitInfinity(GetActualHttpClient(),SIGNAL(Finished()),this,SLOT(FollowRedirectDownload()));
+                if(HttpClientNextTimeout >= 0)
+                    Waiter->SetGeneralWaitTimeoutNext(HttpClientNextTimeout);
+                Waiter->WaitForSignal(GetActualHttpClient(),SIGNAL(Finished()),this,SLOT(FollowRedirectDownload()),this,SLOT(FailBecauseOfTimeout()));
                 GetActualHttpClient()->Download(Location, CurrentFileDownload);
             }
         }else
@@ -1455,6 +1687,7 @@ namespace BrowserAutomationStudioFramework
     {
         SetScript(callback);
         SetFailMessage(tr("Failed to post page ") + url + tr(" with HttpClient"));
+        HttpClientNextTimeout = Waiter->GetGeneralWaitTimeoutNext();
         Waiter->WaitForSignal(GetActualHttpClient(),SIGNAL(Finished()),this,SLOT(FollowRedirect()),this,SLOT(FailBecauseOfTimeout()));
         QHash<QString,QString> p;
         bool isname = true;
@@ -1563,6 +1796,7 @@ namespace BrowserAutomationStudioFramework
     {
         SetScript(callback);
         SetFailMessage(tr("Failed to get page ") + url + tr(" with HttpClient"));
+        HttpClientNextTimeout = Waiter->GetGeneralWaitTimeoutNext();
         Waiter->WaitForSignal(GetActualHttpClient(),SIGNAL(Finished()),this,SLOT(FollowRedirect()),this,SLOT(FailBecauseOfTimeout()));
         GetActualHttpClient()->Get(url);
     }
@@ -1618,6 +1852,7 @@ namespace BrowserAutomationStudioFramework
         {
             Options.Method = p1["method"];
         }
+        HttpClientNextTimeout = Waiter->GetGeneralWaitTimeoutNext();
         Waiter->WaitForSignal(GetActualHttpClient(),SIGNAL(Finished()),this,SLOT(FollowRedirect()),this,SLOT(FailBecauseOfTimeout()));
         GetActualHttpClient()->Get(url,Options);
     }
@@ -1626,6 +1861,7 @@ namespace BrowserAutomationStudioFramework
     {
         SetScript(callback);
         SetFailMessage(tr("Failed to download page ") + url + tr(" with HttpClient"));
+        HttpClientNextTimeout = Waiter->GetGeneralWaitTimeoutNext();
         Waiter->WaitForSignal(GetActualHttpClient(),SIGNAL(Finished()),this,SLOT(FollowRedirectDownload()),this,SLOT(FailBecauseOfTimeout()));
         CurrentFileDownload = file;
         GetActualHttpClient()->Download(url, file);
@@ -1636,8 +1872,71 @@ namespace BrowserAutomationStudioFramework
         Terminate().DoTerminate(how);
     }
 
-    void ScriptWorker::DatabaseAddRecord(const QString& GroupId,const QStringList& Record, int TableId)
+    QString ScriptWorker::DatabaseAddGroup(const QString& GroupName,const QString& GroupDescription, int TableId)
     {
+        DatabaseGroup Group;
+        Group.IsNull = false;
+        Group.Name = GroupName;
+        Group.Description = GroupDescription;
+        return DatabaseConnector->InsertGroup(Group,TableId);
+    }
+
+    QStringList ScriptWorker::DatabaseSelectRecords(const QString& FilterJson,int PageNumber, int PageSize, int TableId)
+    {
+        DatabaseSelector Selector;
+
+        Selector.TableId = TableId;
+        Selector.Filter = DatabaseConnector->ParseFilter(FilterJson);
+
+        DatabaseGroups DbGroups;
+        DbGroups.IsNull = false;
+        DbGroups.GroupIdList.append("-1");
+        Selector.Groups = DbGroups;
+
+        DatabasePage Page;
+        Page.IsNull = false;
+        Page.PageNumber = PageNumber;
+        Page.PageSize = PageSize;
+        Selector.Page = Page;
+
+        QList<DatabaseItem> ResData = DatabaseConnector->Select(Selector);
+
+        QList<DatabaseColumn> Columns = DatabaseConnector->GetColumns(TableId);
+        QStringList res;
+        for(DatabaseItem &item: ResData)
+        {
+            QStringList line;
+
+            for(DatabaseColumn &Column: Columns)
+            {
+                line.append(item.Data[Column.Id].toString());
+            }
+            line.append(item.Id);
+
+            QString Line = CsvHelper->Generate(line,':');
+            res.append(Line);
+        }
+        return res;
+    }
+
+    void ScriptWorker::DatabaseDeleteRecords(const QString& FilterJson,int TableId)
+    {
+        DatabaseMassSelector Selector;
+
+        Selector.TableId = TableId;
+        Selector.Filters = DatabaseConnector->ParseFilter(FilterJson);
+
+        DatabaseGroups DbGroups;
+        DbGroups.IsNull = false;
+        DbGroups.GroupIdList.append("-1");
+        Selector.Groups = DbGroups;
+
+        DatabaseConnector->Delete(Selector);
+    }
+
+    QString ScriptWorker::DatabaseAddRecord(const QString& GroupId,const QStringList& Record, int TableId)
+    {
+
         DatabaseItem Item;
         Item.IsNull = false;
 
@@ -1657,7 +1956,17 @@ namespace BrowserAutomationStudioFramework
                         case DatabaseColumn::Int: VariantParam = QVariant(StringParam.toInt());break;
                         case DatabaseColumn::String: VariantParam = QVariant(StringParam);break;
                         case DatabaseColumn::Bool: VariantParam = QVariant(StringParam == "true");break;
-                        case DatabaseColumn::Date: VariantParam = QVariant(QDateTime::fromString(StringParam,"yyyy-MM-ddTHH:mm:ss"));break;
+                        case DatabaseColumn::Date:
+                        {
+                            QDateTime timestamp;
+                            if(StringParam.length() > 0)
+                            {
+                                timestamp.setTime_t(StringParam.toLongLong() / 1000);
+                            }
+                            else
+                                timestamp = QDateTime::currentDateTime();
+                            VariantParam = QVariant(timestamp);
+                        }break;
                     }
 
                     break;
@@ -1668,8 +1977,117 @@ namespace BrowserAutomationStudioFramework
 
         DatabaseGroups Groups;
         Groups.IsNull = false;
-        Groups.GroupIdList.append(GroupId);
-        DatabaseConnector->Insert(Groups,Item,TableId);
+        if(GroupId.isEmpty())
+            Groups.GroupIdList.append("-1");
+        else
+            Groups.GroupIdList.append(GroupId);
+        return DatabaseConnector->Insert(Groups,Item,TableId);
+    }
+
+
+    void ScriptWorker::DatabaseUpdateRecord(const QString& RecordId,const QStringList& Record, int TableId)
+    {
+        DatabaseItem item;
+        item.Id = RecordId;
+        item.IsNull = false;
+
+        QList<DatabaseColumn> Columns = DatabaseConnector->GetColumns(TableId);
+
+        for(int i = 0;i<Record.length() - 1;i+=2)
+        {
+            int ColumnId = Record.at(i).toInt();
+            QString StringParam = Record.at(i+1);
+            QVariant VariantParam;
+            foreach(DatabaseColumn Column, Columns)
+            {
+                if(ColumnId == Column.Id)
+                {
+                    switch(Column.Type)
+                    {
+                        case DatabaseColumn::Int: VariantParam = QVariant(StringParam.toInt());break;
+                        case DatabaseColumn::String: VariantParam = QVariant(StringParam);break;
+                        case DatabaseColumn::Bool: VariantParam = QVariant(StringParam == "true");break;
+                        case DatabaseColumn::Date:
+                        {
+                            QDateTime timestamp;
+                            if(StringParam.length() > 0)
+                            {
+                                timestamp.setTime_t(StringParam.toLongLong() / 1000);
+                            }
+                            else
+                                timestamp = QDateTime::currentDateTime();
+                            VariantParam = QVariant(timestamp);
+                        }break;
+                    }
+
+                    break;
+                }
+            }
+            item.Data[ColumnId] = VariantParam;
+        }
+
+        DatabaseConnector->Update(item,TableId);
+    }
+
+
+    void ScriptWorker::SubstageSetStartingFunction(const QString& StartingFunction)
+    {
+        this->SubstageStartingFunction = StartingFunction;
+    }
+
+    QString ScriptWorker::SubstageGetStartingFunction()
+    {
+        return SubstageStartingFunction;
+    }
+
+    int ScriptWorker::SubstageGetId()
+    {
+        return SubstageId;
+    }
+
+    void ScriptWorker::SubstageSetId(int Id)
+    {
+        this->SubstageId = Id;
+    }
+
+    int ScriptWorker::SubstageGetParentId()
+    {
+        return SubstageParentId;
+    }
+
+    void ScriptWorker::SubstageSetParentId(int Id)
+    {
+        this->SubstageParentId = Id;
+    }
+
+    void ScriptWorker::SubstageFinished(int Id)
+    {
+        if(Id == SubstageId)
+        {
+            emit SubstageFinishedSignal();
+        }
+    }
+
+    void ScriptWorker::SubstageCall(const QString& StartingFunction, qint64 ThreadsNumber, qint64 MaximumSuccess, qint64 MaximumFailure, const QString& Callback)
+    {
+        SubstageId = qrand() % 1000000 + 1;
+        SetScript(Callback);
+        if(MaximumSuccess < 0)
+            MaximumSuccess = std::numeric_limits<qint64>::max();
+        if(MaximumFailure < 0)
+            MaximumFailure = std::numeric_limits<qint64>::max();
+        Waiter->WaitInfinity(this,SIGNAL(SubstageFinishedSignal()),this,SLOT(SubstageFinishAndRunNext()));
+        emit SubstageBeginSignal(StartingFunction, ThreadsNumber, MaximumSuccess, MaximumFailure, SubstageId);
+    }
+
+    void ScriptWorker::SubstageFinishAndRunNext()
+    {
+
+        if(SubstageId)
+        {
+            SubstageId = 0;
+            RunSubScript();
+        }
     }
 
 

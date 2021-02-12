@@ -13,12 +13,20 @@ namespace BrowserAutomationStudioFramework
     {
         Q_OBJECT
         QString Script;
+        QString DatabaseId;
+        QString Schema;
+        bool ConnectionIsRemote;
+        QString ConnectionServer;
+        QString ConnectionPort;
+        QString ConnectionLogin;
+        QString ConnectionPassword;
         QString FileName;
         QString FileContent;
         bool Result;
         QString ErrorString;
         QString ScriptName;
         QString ScriptVersion;
+        bool HideBrowsers;
 
         QString EngineVersion;
         QString ChromeCommandLine;
@@ -49,8 +57,17 @@ namespace BrowserAutomationStudioFramework
     public:
         explicit XmlResourceController(QObject *parent = 0);
         void SetScript(const QString & Script);
+        void SetDatabaseId(const QString & DatabaseId);
+        void SetSchema(const QString & Schema);
+        void SetConnectionIsRemote(bool ConnectionIsRemote);
+        void SetConnectionServer(const QString & ConnectionServer);
+        void SetConnectionPort(const QString & ConnectionPort);
+        void SetConnectionLogin(const QString & ConnectionLogin);
+        void SetConnectionPassword(const QString & ConnectionPassword);
+
         void SetAvailableLanguages(const QString & AvailableLanguages);
         void SetScriptName(const QString & Name);
+        void SetHideBrowsers(bool HideBrowsers);
         void SetScriptVersion(const QString & Version);
         void SetFileName(const QString & SetFileName);
         void SetFileContent(const QString & FileContent);
@@ -80,7 +97,16 @@ namespace BrowserAutomationStudioFramework
         void SetOutputVisible9(bool OutputVisible9);
 
         QString GetScript();
+        QString GetDatabaseId();
+        QString GetSchema();
+        bool GetConnectionIsRemote();
+        QString GetConnectionServer();
+        QString GetConnectionPort();
+        QString GetConnectionLogin();
+        QString GetConnectionPassword();
+
         QString GetScriptName();
+        bool GetHideBrowsers();
         QString GetScriptVersion();
         QString GetFileName();
         QString GetFileContent();

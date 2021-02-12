@@ -19,6 +19,8 @@ struct ActionDataClass
 {
     std::string Name;
     std::string Description;
+    std::string SuggestionEn;
+    std::string SuggestionRu;
     std::string Template;
     bool IsElement;
     std::string InterfaceScript;
@@ -40,6 +42,9 @@ struct ModulesDataClass
 {
     std::string Name;
     std::string Description;
+    std::string Icon;
+    std::string Info;
+    bool OnlyWithDatabase = false;
     std::vector<std::string> BrowserScripts;
     std::vector<ActionData> Actions;
     std::vector<LocalizeData> Localization;

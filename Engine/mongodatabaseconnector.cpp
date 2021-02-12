@@ -8,15 +8,91 @@
 #include <QUrl>
 #include <QDirIterator>
 #include <QSettings>
+#include <QDialog>
+#include <QPlainTextEdit>
+#include <QLayout>
+#include <QStandardPaths>
+#include <QJsonDocument>
+#include <QJsonArray>
+#include <QCoreApplication>
+
 
 namespace BrowserAutomationStudioFramework
 {
     MongoDatabaseConnector::MongoDatabaseConnector(QObject *parent) :
         IDatabaseConnector(parent), _c(true)
     {
+        CurrentMongoProcess = 0;
         IsDatabasePresent = false;
         IsBusy = false;
         _HasDatabase = false;
+        DatabaseConnectionWindow = 0;
+    }
+
+    MongoDatabaseConnector::~MongoDatabaseConnector()
+    {
+        ClosePort();
+    }
+
+    QString MongoDatabaseConnector::GetDatabaseBaseLocation()
+    {
+        QString res = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) + "/BasDatabases/";
+        if(res.isEmpty())
+            res = "../../data/";
+        return res;
+    }
+    QString MongoDatabaseConnector::GetDatabaseLocation()
+    {
+        return GetDatabaseBaseLocation() + DatabaseId + "/";
+    }
+
+    void MongoDatabaseConnector::SetDatabaseConnectionWindow(IDatabaseConnectionWindow * DatabaseConnectionWindow)
+    {
+        this->DatabaseConnectionWindow = DatabaseConnectionWindow;
+        connect(DatabaseConnectionWindow,SIGNAL(ContinueWithoutDatabase()), this,SLOT(StartAnyway()));
+        connect(DatabaseConnectionWindow,SIGNAL(Cancel()), this,SLOT(UserCancel()));
+        connect(DatabaseConnectionWindow,SIGNAL(DatabaseConnectionOk()), this,SLOT(DatabaseConnectionOk()));
+        connect(DatabaseConnectionWindow,SIGNAL(ShowLog()), this,SLOT(ShowLog()));
+    }
+
+    void MongoDatabaseConnector::DatabaseConnectionOk()
+    {
+        _WasError = false;
+        emit Started();
+        this->DatabaseConnectionWindow->deleteLater();
+        this->DatabaseConnectionWindow = 0;
+    }
+
+    void MongoDatabaseConnector::StartAnyway()
+    {
+        _WasError = false;
+        _HasDatabase = false;
+        emit Started();
+        this->DatabaseConnectionWindow->deleteLater();
+        this->DatabaseConnectionWindow = 0;
+    }
+
+    void MongoDatabaseConnector::UserCancel()
+    {
+        _WasError = true;
+        _ErrorString = tr("User cancel");
+        _HasDatabase = true;
+        emit Started();
+        this->DatabaseConnectionWindow->deleteLater();
+        this->DatabaseConnectionWindow = 0;
+    }
+
+    void MongoDatabaseConnector::ShowLog()
+    {
+        QDialog dialog;
+        QHBoxLayout *layout = new QHBoxLayout(&dialog);
+        dialog.setLayout(layout);
+        QPlainTextEdit * edit = new QPlainTextEdit(&dialog);
+        layout->addWidget(edit);
+        edit->setPlainText(ConnectionLog);
+        dialog.resize(800,600);
+
+        dialog.exec();
     }
 
     void MongoDatabaseConnector::SetCsvHelper(ICsvHelper * CsvHelper)
@@ -39,7 +115,10 @@ namespace BrowserAutomationStudioFramework
             }
 
             std::auto_ptr<DBClientCursor> cursor = _c.query(QString("%1.res").arg(Selector.TableId).toStdString(), q);
-
+            if(cursor.get() == 0)
+            {
+                throw std::exception();
+            }
 
             QFile FileObject(File);
 
@@ -196,6 +275,10 @@ namespace BrowserAutomationStudioFramework
 
 
             std::auto_ptr<DBClientCursor> cursor = _c.query(QString("%1.res").arg(Selector.TableId).toStdString(), q);
+            if(cursor.get() == 0)
+            {
+                throw std::exception();
+            }
 
             QList<DatabaseColumn> ColumnsAll = GetColumns(Selector.TableId);
             QList<DatabaseColumn> Columns;
@@ -685,6 +768,10 @@ namespace BrowserAutomationStudioFramework
                 q.sort(QString::number(Selector.Sort.ColumnId).toStdString(),sort);
             }
             std::auto_ptr<DBClientCursor> cursor = _c.query(QString("%1.res").arg(Selector.TableId).toStdString(), q, limmit, offset);
+            if(cursor.get() == 0)
+            {
+                throw std::exception();
+            }
 
             QList<DatabaseItem> res;
 
@@ -756,15 +843,17 @@ namespace BrowserAutomationStudioFramework
 
 
     }
-    void MongoDatabaseConnector::Insert(DatabaseGroups Groups,DatabaseItem Item, int TableId)
+    QString MongoDatabaseConnector::Insert(DatabaseGroups Groups,DatabaseItem Item, int TableId)
     {
 
         //QTime t = QTime::currentTime();
         _WasError = false;
+        QString OidString;
 
         try
         {
             OID oid = OID::gen();
+            OidString = QString::fromStdString(oid.toString());
             BSONObjBuilder ItemBuild;
             ItemBuild.append("_id", oid);
             QHashIterator<int,QVariant> i(Item.Data);
@@ -805,19 +894,22 @@ namespace BrowserAutomationStudioFramework
             //qDebug()<<o.toString().c_str();
             _c.insert(QString("%1.res").arg(TableId).toStdString(), o);
         }catch( const mongo::DBException &e ) {
+            OidString.clear();
             _WasError = true;
             QString error = QString::fromStdString(e.what());
             _ErrorString = tr("Database Error : ") + error;
             qDebug()<<_ErrorString;
-            return;
+            return OidString;
         }catch(...)
         {
+            OidString.clear();
             _WasError = true;
             _ErrorString = tr("Database Error");
             qDebug()<<"Database Error";
-            return;
+            return OidString;
 
         }
+        return OidString;
         //qDebug()<<t.msecsTo(QTime::currentTime());
     }
     int MongoDatabaseConnector::Count(DatabaseSelector Selector)
@@ -950,10 +1042,11 @@ namespace BrowserAutomationStudioFramework
                 res.append(group);
             }
 
-
-
-
             std::auto_ptr<DBClientCursor> cursor = _c.query(QString("%1.groups").arg(TableId).toStdString(), BSONObj());
+            if(cursor.get() == 0)
+            {
+                throw std::exception();
+            }
 
             while (cursor->more())
             {
@@ -1342,29 +1435,13 @@ namespace BrowserAutomationStudioFramework
         return _HasDatabase;
     }
 
-    void MongoDatabaseConnector::LoadSchema()
+    void MongoDatabaseConnector::LoadSchema(const QString& SchemaText)
     {
+        IsDatabasePresent = !SchemaText.isEmpty();
         Schema.Tables.clear();
-        QFile file("schema.xml");
-        IsDatabasePresent = file.open(QIODevice::ReadOnly | QIODevice::Text);
-        if(!IsDatabasePresent)
-        {
-            _ErrorString = "schema.xml missing";
-            return;
-        }
 
-        {
-            QSettings Settings("settings.ini",QSettings::IniFormat);
-            if(Settings.value("MongoPort",0).toInt() == 0)
-            {
-                Port = qrand() % 10000 + 10000;
-                Settings.setValue("MongoPort",Port);
-            }else
-            {
-                Port = Settings.value("MongoPort",0).toInt();
-            }
-        }
-        QXmlStreamReader xmlReader(&file);
+        GetPort();
+        QXmlStreamReader xmlReader(SchemaText);
 
 
         Table t;
@@ -1493,7 +1570,35 @@ namespace BrowserAutomationStudioFramework
         IsDatabasePresent = false;
         try
         {
-            _c.connect(QString("localhost:%1").arg(QString::number(Port)).toStdString());
+            QString ConnectionString;
+            if(ConnectionIsRemote)
+            {
+
+                ConnectionString += ConnectionServer;
+                if(!ConnectionPort.isEmpty())
+                {
+                    ConnectionString += QString(":");
+                    ConnectionString += ConnectionPort;
+                }
+                ConnectionLog += "Remote Connection String = " + ConnectionString;
+                qDebug()<<"RemoteConnectionString"<<ConnectionString;
+
+                if(!ConnectionLogin.isEmpty() && !ConnectionPassword.isEmpty())
+                {
+                    qDebug()<<"RemoteConnectionLoginAndPass"<<ConnectionLogin<<ConnectionPassword;
+                    //_c.connect(ConnectionString.toStdString(),ConnectionLogin.toStdString(),ConnectionPassword.toStdString());
+                    _c.connect(ConnectionString.toStdString());
+                }else
+                {
+                    _c.connect(ConnectionString.toStdString());
+                }
+
+            }else
+            {
+                ConnectionString = QString("localhost:%1").arg(QString::number(Port));
+                _c.connect(ConnectionString.toStdString());
+            }
+
             IsDatabasePresent = true;
             qDebug()<<"Connected";
         } catch( const DBException &e )
@@ -1501,22 +1606,31 @@ namespace BrowserAutomationStudioFramework
             IsDatabasePresent = false;
             _ErrorString = QString(e.what());
             qDebug()<<"Connection Error"<<_ErrorString;
+            ConnectionLog += "\nConnection Error = " + _ErrorString;
         }catch( ... )
         {
             IsDatabasePresent = false;
             _ErrorString = tr("Database error");
             qDebug()<<"Database error";
+            ConnectionLog += "\nUnknown database error";
         }
 
         return IsDatabasePresent;
     }
 
-    bool MongoDatabaseConnector::Start()
+    bool MongoDatabaseConnector::Start(const QString& SchemaText,const QString& DatabaseId, bool IsRemote, const QString& ConnectionServer, const QString& ConnectionPort, const QString& ConnectionLogin, const QString& ConnectionPassword)
     {
+        this->ConnectionIsRemote = IsRemote;
+        this->ConnectionServer = ConnectionServer;
+        this->ConnectionPort = ConnectionPort;
+        this->ConnectionLogin = ConnectionLogin;
+        this->ConnectionPassword = ConnectionPassword;
+
+        this->DatabaseId = DatabaseId;
         _WasError = false;
         _ErrorString.clear();
 
-        LoadSchema();
+        LoadSchema(SchemaText);
 
         if(!IsDatabasePresent)
         {
@@ -1525,24 +1639,39 @@ namespace BrowserAutomationStudioFramework
             return true;
         }
 
-        if(TryConnect())
+        DatabaseConnectionWindow->Show();
+
+        if(!IsRemote)
         {
-            _WasError = false;
-            emit Started();
-            return true;
+            if(TryConnect())
+            {
+                DatabaseConnectionWindow->Hide();
+                return true;
+            }
+
+
+            if(!EnsureDataDirCreated())
+            {
+                DatabaseConnectionWindow->Failed(tr("Failed to create data dir"));
+                return false;
+            }
+
+            StartServer();
+            return false;
+        }
+        else
+        {
+            if(TryConnect())
+            {
+                DatabaseConnectionWindow->Hide();
+                return true;
+            }else
+            {
+                DatabaseConnectionWindow->Failed(QString(tr("Failed to connect to database on server %1")).arg(ConnectionServer));
+                return false;
+            }
         }
 
-
-        if(!EnsureDataDirCreated())
-        {
-            _WasError = true;
-            _ErrorString = tr("Failed to create data dir");
-            emit Started();
-            return true;
-        }
-
-        StartServer();
-        return false;
 
     }
 
@@ -1558,14 +1687,14 @@ namespace BrowserAutomationStudioFramework
 
     bool MongoDatabaseConnector::EnsureDataDirCreated()
     {
-        QDir dir("../../data");
+        QDir dir(GetDatabaseLocation());
         if(!dir.exists())
         {
             if(!dir.mkpath("."))
                 return false;
         }
 
-        QDir dirc("../../data/current");
+        QDir dirc(GetDatabaseLocation() + QString("/current"));
         if(!dirc.exists())
         {
             if(!dirc.mkpath("."))
@@ -1585,14 +1714,15 @@ namespace BrowserAutomationStudioFramework
         }*/
 
         MongoOutput.clear();
-        CurrentMongoProcess = new QProcess(this);
+        CurrentMongoProcess = new QProcess();
+        //connect(CurrentMongoProcess,SIGNAL(finished(int)),this,SLOT(MongoProcessTerminate()));
         connect(CurrentMongoProcess,SIGNAL(finished(int)),this,SLOT(MongoServerClosed()));
-        connect(CurrentMongoProcess,SIGNAL(finished(int)),CurrentMongoProcess,SLOT(deleteLater()));
         //connect(CurrentMongoProcess,SIGNAL(readyRead()),this,SLOT(ProcessReadDebug()));
         connect(CurrentMongoProcess,SIGNAL(readyRead()),this,SLOT(ProcessRead()));
+        connect(CurrentMongoProcess,SIGNAL(started()),this,SLOT(SaveMongoPid()));
 
-
-        connect(CurrentMongoProcess,SIGNAL(destroyed()),CurrentMongoProcess,SLOT(terminate()));
+        connect(CurrentMongoProcess,SIGNAL(destroyed()),this,SLOT(ClosePort()));
+        //connect(this,SIGNAL(TerminateProcess()),CurrentMongoProcess,SLOT(terminate()));
 
         QString exe = "mongod.exe";
         if(QSysInfo::windowsVersion() < QSysInfo::WV_VISTA)
@@ -1600,12 +1730,12 @@ namespace BrowserAutomationStudioFramework
         #ifdef Q_OS_LINUX
             exe = "mongod";
         #endif
-        CurrentMongoProcess->start(exe,QStringList()<<"--dbpath"<<"../../data/current"<<"--port"<<QString::number(Port)<<"--bind_ip"<<"127.0.0.1"<<"--journal");
+        CurrentMongoProcess->setWorkingDirectory(GetDatabaseLocation());
+        CurrentMongoProcess->start(exe,QStringList()<<"--dbpath"<<QString("current")<<"--port"<<QString::number(Port)<<"--bind_ip"<<"127.0.0.1"<<"--journal"<<"--smallfiles");
     }
 
     void MongoDatabaseConnector::MongoServerClosed()
     {
-        qDebug()<<"Server Closed";
         if(IsBusy)
         {
             TryConnectFinal();
@@ -1619,16 +1749,15 @@ namespace BrowserAutomationStudioFramework
     {
         if(TryConnect())
         {
-            _WasError = false;
             IsBusy = false;
-            emit Started();
+            if(DatabaseConnectionWindow)
+                DatabaseConnectionWindow->Hide();
             return;
         }else
         {
-            _WasError = true;
-            _ErrorString = QString(tr("Failed to run database server on port %1. Please check firewall settings, maybe exception should be added. This error may occur if you have less than 4GB free space on hard drive.")).arg(QString::number(Port));
             IsBusy = false;
-            emit Started();
+            if(DatabaseConnectionWindow)
+                DatabaseConnectionWindow->Failed(QString(tr("Failed to run database server on port %1. Please check firewall settings, maybe exception should be added. This error may occur if you have less than 4GB free space on hard drive.")).arg(QString::number(Port)));
             return;
         }
     }
@@ -1640,6 +1769,7 @@ namespace BrowserAutomationStudioFramework
         {
             QString append = CurrentMongoProcess->readAll();
             MongoOutput.append(append);
+            ConnectionLog.append(append);
             qDebug()<<append;
             if(MongoOutput.contains("waiting for connections on port"))
             {
@@ -1651,12 +1781,9 @@ namespace BrowserAutomationStudioFramework
                 MongoOutput.clear();
                 disconnect(CurrentMongoProcess,SIGNAL(readyRead()),this,SLOT(ProcessRead()));
                 CurrentMongoProcess->deleteLater();
+                CurrentMongoProcess = 0;
 
-                QSettings Settings("settings.ini",QSettings::IniFormat);
-                Port = qrand() % 10000 + 10000;
-                Settings.setValue("MongoPort",Port);
-
-
+                ChangePort();
 
                 IsBusy = false;
 
@@ -1700,7 +1827,7 @@ namespace BrowserAutomationStudioFramework
     {
         _WasError = false;
         QStringList res;
-        QDirIterator it("../../data");
+        QDirIterator it(GetDatabaseLocation());
         while (it.hasNext())
         {
             it.next();
@@ -1728,7 +1855,7 @@ namespace BrowserAutomationStudioFramework
         QString exe = "mongodump.exe";
         if(QSysInfo::windowsVersion() < QSysInfo::WV_VISTA)
             exe = "mongodumpxp.exe";
-        Process->start(exe,QStringList()<<"--out"<<QString("../../data/") + res<<"--port"<<QString::number(Port));
+        Process->start(exe,QStringList()<<"--out"<<GetDatabaseLocation() + res<<"--port"<<QString::number(Port));
 
     }
     void MongoDatabaseConnector::Restore(const QString& BackupLabel)
@@ -1743,7 +1870,7 @@ namespace BrowserAutomationStudioFramework
         QString exe = "mongorestore.exe";
         if(QSysInfo::windowsVersion() < QSysInfo::WV_VISTA)
             exe = "mongorestorexp.exe";
-        Process->start(exe,QStringList()<<"--port"<<QString::number(Port)<<QString("../../data/") + BackupLabel);
+        Process->start(exe,QStringList()<<"--port"<<QString::number(Port)<<QString(GetDatabaseLocation()) + BackupLabel);
     }
 
     void MongoDatabaseConnector::BackupRestoreFinishedSlot(int res)
@@ -1751,6 +1878,382 @@ namespace BrowserAutomationStudioFramework
         //qDebug()<<"BackupRestoreFinished"<<res;
         emit BackupOrRestoreFinished();
     }
+
+    DatabaseFilters MongoDatabaseConnector::ParseFilter(const QString& JsonFilters)
+    {
+        DatabaseFilters res;
+        QJsonParseError err;
+
+        res.IsNull = true;
+        QJsonDocument InputObject = QJsonDocument::fromJson(JsonFilters.toUtf8(),&err);
+        if(err.error)
+            return res;
+
+        res.IsNull = false;
+
+        for(QJsonValue val:InputObject.array())
+        {
+            QJsonArray array = val.toArray();
+            DatabaseFilter f;
+
+            bool IsString = false;
+            bool IsInt = false;
+            bool IsValid = true;
+            qlonglong IntValue = 0;
+            QString StringValue;
+
+            if(array.size()>=3)
+            {
+                if(array[2].isDouble())
+                {
+                    IsInt = true;
+                    IntValue = array[2].toDouble();
+                }
+                if(array[2].isString())
+                {
+                    IsString = true;
+                    StringValue = array[2].toString();
+                }
+            }
+
+            if(array.size()>=2)
+            {
+                f.ColumnId = array[0].toInt();
+                QString type = array[1].toString();
+
+                if(type == "StringNotEmpty")
+                    f.Type = DatabaseFilter::StringNotEmpty;
+
+                if(type == "StringEmpty")
+                    f.Type = DatabaseFilter::StringEmpty;
+
+                if(type == "StringContains")
+                {
+                    f.Type = DatabaseFilter::StringContains;
+                    if(IsInt)
+                    {
+                        f.Data = QString::number(IntValue);
+                    }else if(IsString)
+                    {
+                        f.Data = StringValue;
+                    }
+                    else
+                    {
+                        IsValid = false;
+                    }
+                }
+
+                if(type == "IntEquals")
+                {
+                    f.Type = DatabaseFilter::IntEquals;
+                    if(IsInt)
+                    {
+                        f.Data = IntValue;
+                    }else if(IsString)
+                    {
+                        f.Data = StringValue.toInt();
+                    }
+                    else
+                    {
+                        IsValid = false;
+                    }
+                }
+
+                if(type == "IntNotEquals")
+                {
+                    f.Type = DatabaseFilter::IntNotEquals;
+                    if(IsInt)
+                    {
+                        f.Data = IntValue;
+                    }else if(IsString)
+                    {
+                        f.Data = StringValue.toInt();
+                    }
+                    else
+                    {
+                        IsValid = false;
+                    }
+                }
+
+                if(type == "IntGreaterOrEqual")
+                {
+                    f.Type = DatabaseFilter::IntGreaterOrEqual;
+                    if(IsInt)
+                    {
+                        f.Data = IntValue;
+                    }else if(IsString)
+                    {
+                        f.Data = StringValue.toInt();
+                    }
+                    else
+                    {
+                        IsValid = false;
+                    }
+                }
+
+                if(type == "IntGreater")
+                {
+                    f.Type = DatabaseFilter::IntGreater;
+                    if(IsInt)
+                    {
+                        f.Data = IntValue;
+                    }else if(IsString)
+                    {
+                        f.Data = StringValue.toInt();
+                    }
+                    else
+                    {
+                        IsValid = false;
+                    }
+                }
+
+                if(type == "IntLessThan")
+                {
+                    f.Type = DatabaseFilter::IntLessThan;
+                    if(IsInt)
+                    {
+                        f.Data = IntValue;
+                    }else if(IsString)
+                    {
+                        f.Data = StringValue.toInt();
+                    }
+                    else
+                    {
+                        IsValid = false;
+                    }
+                }
+
+                if(type == "IntLessThanOrEqual")
+                {
+                    f.Type = DatabaseFilter::IntLessThanOrEqual;
+                    if(IsInt)
+                    {
+                        f.Data = IntValue;
+                    }else if(IsString)
+                    {
+                        f.Data = StringValue.toInt();
+                    }
+                    else
+                    {
+                        IsValid = false;
+                    }
+                }
+
+                if(type == "BoolIsTrue")
+                    f.Type = DatabaseFilter::BoolIsTrue;
+
+                if(type == "BoolIsFalse")
+                    f.Type = DatabaseFilter::BoolIsFalse;
+
+                if(type == "DateIsLessThan")
+                {
+                    f.Type = DatabaseFilter::DateIsLessThan;
+                    if(IsInt)
+                    {
+                        QDateTime timestamp;
+                        timestamp.setTime_t(IntValue / 1000);
+                        f.Data = timestamp;
+                    }
+                    else
+                    {
+                        IsValid = false;
+                    }
+                }
+
+                if(type == "DateGreaterThan")
+                {
+                    f.Type = DatabaseFilter::DateGreaterThan;
+                    if(IsInt)
+                    {
+                        QDateTime timestamp;
+                        timestamp.setTime_t(IntValue / 1000);
+                        f.Data = timestamp;
+                    }
+                    else
+                    {
+                        IsValid = false;
+                    }
+                }
+
+                if(type == "DateIsSameYear")
+                {
+                    f.Type = DatabaseFilter::DateIsSameYear;
+                    if(IsInt)
+                    {
+                        QDateTime timestamp;
+                        timestamp.setTime_t(IntValue / 1000);
+                        f.Data = timestamp;
+                    }
+                    else
+                    {
+                        IsValid = false;
+                    }
+                }
+
+                if(type == "DateIsSameMonth")
+                {
+                    f.Type = DatabaseFilter::DateIsSameMonth;
+                    if(IsInt)
+                    {
+                        QDateTime timestamp;
+                        timestamp.setTime_t(IntValue / 1000);
+                        f.Data = timestamp;
+                    }
+                    else
+                    {
+                        IsValid = false;
+                    }
+                }
+
+                if(type == "DateIsSameDay")
+                {
+                    f.Type = DatabaseFilter::DateIsSameDay;
+                    if(IsInt)
+                    {
+                        QDateTime timestamp;
+                        timestamp.setTime_t(IntValue / 1000);
+                        f.Data = timestamp;
+                    }
+                    else
+                    {
+                        IsValid = false;
+                    }
+                }
+
+                if(type == "DateIsSameHour")
+                {
+                    f.Type = DatabaseFilter::DateIsSameHour;
+                    if(IsInt)
+                    {
+                        QDateTime timestamp;
+                        timestamp.setTime_t(IntValue / 1000);
+                        f.Data = timestamp;
+                    }
+                    else
+                    {
+                        IsValid = false;
+                    }
+                }
+
+
+
+            }
+            if(IsValid)
+                res.FilterList.append(f);
+        }
+
+        return res;
+    }
+
+    void MongoDatabaseConnector::GetPort()
+    {
+        QSettings Settings(GetDatabaseBaseLocation() + QString("settings.ini"),QSettings::IniFormat);
+        if(Settings.value(DatabaseId,"").toString().isEmpty())
+        {
+            Port = qrand() % 10000 + 10000;
+            Settings.setValue(DatabaseId,QString::number(Port) + QString(";") + QString::number(qApp->applicationPid()));
+        }else
+        {
+            QStringList Value = Settings.value(DatabaseId,"").toString().split(";");
+            QString PortString = Value.first();
+            QStringList Pids = Value.last().split(",");
+            if(!Pids.contains(QString::number(qApp->applicationPid())))
+            {
+                Pids.append(QString::number(qApp->applicationPid()));
+                Settings.setValue(DatabaseId,PortString + QString(";") + Pids.join(","));
+            }
+            Port = PortString.toInt();
+        }
+    }
+
+    void MongoDatabaseConnector::ChangePort()
+    {
+        QSettings Settings(GetDatabaseBaseLocation() + QString("settings.ini"),QSettings::IniFormat);
+        Port = qrand() % 10000 + 10000;
+        Settings.setValue(DatabaseId,QString::number(Port) + QString(";") + QString::number(qApp->applicationPid()));
+    }
+
+    BOOL TerminateProcess(DWORD dwProcessId, UINT uExitCode)
+    {
+        DWORD dwDesiredAccess = PROCESS_TERMINATE;
+        BOOL  bInheritHandle  = FALSE;
+        HANDLE hProcess = OpenProcess(dwDesiredAccess, bInheritHandle, dwProcessId);
+        if (hProcess == NULL)
+            return FALSE;
+
+        BOOL result = ::TerminateProcess(hProcess, uExitCode);
+
+        CloseHandle(hProcess);
+
+        return result;
+    }
+
+    void MongoDatabaseConnector::ClosePort()
+    {
+        //qDebug()<<"ClosePort";
+        QSettings Settings(GetDatabaseBaseLocation() + QString("settings.ini"),QSettings::IniFormat);
+        QStringList Value = Settings.value(DatabaseId,"").toString().split(";");
+        if(Settings.value(DatabaseId,"").toString().isEmpty())
+        {
+            MongoProcessTerminate();
+            return;
+        }
+
+        QString PortString = Value.first();
+        QStringList Pids = Value.last().split(",");
+        if(Pids.contains(QString::number(qApp->applicationPid())))
+        {
+            Pids.removeAll(QString::number(qApp->applicationPid()));
+        }
+
+        if(Pids.isEmpty())
+        {
+            if(CurrentMongoProcess)
+            {
+                MongoProcessTerminate();
+                Settings.remove(DatabaseId);
+            }else
+            {
+                if(Settings.contains(QString("MongoPid") + DatabaseId))
+                {
+                    TerminateProcess(Settings.value(QString("MongoPid") + DatabaseId,"0").toString().toULongLong(),0);
+                    Settings.remove(QString("MongoPid") + DatabaseId);
+                    Settings.remove(DatabaseId);
+                }
+            }
+        }else
+        {
+            Settings.setValue(DatabaseId,PortString + QString(";") + Pids.join(","));
+        }
+
+    }
+
+    void MongoDatabaseConnector::SaveMongoPid()
+    {
+        if(!CurrentMongoProcess)
+            return;
+        QSettings Settings(GetDatabaseBaseLocation() + QString("settings.ini"),QSettings::IniFormat);
+        QString pid = QString::number(CurrentMongoProcess->processId());
+        Settings.setValue(QString("MongoPid") + DatabaseId,pid);
+    }
+
+    void MongoDatabaseConnector::MongoProcessTerminate()
+    {
+        //qDebug()<<"MongoProcessTerminate";
+        if(CurrentMongoProcess)
+        {
+            CurrentMongoProcess->deleteLater();
+            {
+                QSettings Settings(GetDatabaseBaseLocation() + QString("settings.ini"),QSettings::IniFormat);
+                Settings.remove(QString("MongoPid") + DatabaseId);
+            }
+
+            CurrentMongoProcess->kill();
+            CurrentMongoProcess = 0;
+        }
+    }
+
+
 
 
 }

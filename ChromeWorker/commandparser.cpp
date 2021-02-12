@@ -1,7 +1,12 @@
 #include "commandparser.h"
 #include "rapidxml.hpp"
+#include "picojson.h"
 #include "log.h"
 #include "split.h"
+#include "replaceall.h"
+#include "snappy.h"
+#include "base64.h"
+
 
 CommandParser::CommandParser()
 {
@@ -23,8 +28,18 @@ void CommandParser::Parse(const std::string& Xml)
             break;
 
         std::string CurrentXml = AllXml.substr(0,pos + FindTag.length());
-        worker_log(std::string("Found xml : ") + CurrentXml);
+
         AllXml.erase(0,pos + FindTag.length());
+
+        ReplaceAllInPlace(CurrentXml,"</Messages>","");
+        ReplaceAllInPlace(CurrentXml,"<Messages>","");
+
+        std::string Uncompressed;
+        CurrentXml = base64_decode(CurrentXml);
+        snappy::Uncompress(CurrentXml.data(),CurrentXml.length(),&Uncompressed);
+        CurrentXml = std::string("<Messages>") + Uncompressed + std::string("</Messages>");
+
+        //WORKER_LOG(std::string("Found xml : ") + CurrentXml);
 
         std::vector<char> data(CurrentXml.begin(), CurrentXml.end());
         data.push_back(0);
@@ -33,7 +48,7 @@ void CommandParser::Parse(const std::string& Xml)
         rapidxml::xml_node<> *MessagesNode = doc.first_node("Messages");
         if(!MessagesNode)
         {
-            worker_log("Not found Messages element");
+            WORKER_LOG("Not found Messages element");
             continue;
         }
 
@@ -43,7 +58,7 @@ void CommandParser::Parse(const std::string& Xml)
         if(CommandNode)
         {
             std::string value = CommandNode->value();
-            worker_log("SetNextAction");
+            WORKER_LOG("SetNextAction");
             for(auto f:EventSetNextAction)
                 f(value);
         }
@@ -52,7 +67,7 @@ void CommandParser::Parse(const std::string& Xml)
         if(CommandNode)
         {
             std::string value = CommandNode->value();
-            worker_log("Load");
+            WORKER_LOG("Load");
             for(auto f:EventLoad)
                 f(value);
         }
@@ -61,16 +76,24 @@ void CommandParser::Parse(const std::string& Xml)
         if(CommandNode)
         {
             std::string value = CommandNode->value();
-            worker_log("SetCode");
+            std::string schema;
+            for (rapidxml::xml_attribute<> *attr = CommandNode->first_attribute(); attr; attr = attr->next_attribute())
+            {
+                if(std::string(attr->name()) == std::string("Schema"))
+                {
+                    schema = attr->value();
+                }
+            }
+            WORKER_LOG("SetCode");
             for(auto f:EventSetCode)
-                f(value);
+                f(value,schema);
         }
 
         CommandNode = MessagesNode->first_node("SetResources");
         if(CommandNode)
         {
             std::string value = CommandNode->value();
-            worker_log(std::string("SetResources<<") + value);
+            WORKER_LOG(std::string("SetResources<<") + value);
             for(auto f:EventSetResources)
                 f(value);
         }
@@ -79,7 +102,7 @@ void CommandParser::Parse(const std::string& Xml)
         if(CommandNode)
         {
             std::string value = CommandNode->value();
-            worker_log("Visible");
+            WORKER_LOG("Visible");
             for(auto f:EventVisible)
                 f(std::stoi(value));
         }
@@ -87,7 +110,7 @@ void CommandParser::Parse(const std::string& Xml)
         CommandNode = MessagesNode->first_node("Reset");
         if(CommandNode)
         {
-            worker_log("Reset");
+            WORKER_LOG("Reset");
             for(auto f:EventReset)
                 f();
         }
@@ -95,7 +118,7 @@ void CommandParser::Parse(const std::string& Xml)
         CommandNode = MessagesNode->first_node("IsChanged");
         if(CommandNode)
         {
-            worker_log("IsChanged");
+            WORKER_LOG("IsChanged");
             for(auto f:EventIsChanged)
                 f();
         }
@@ -104,7 +127,7 @@ void CommandParser::Parse(const std::string& Xml)
         if(CommandNode)
         {
             std::string value = CommandNode->value();
-            worker_log("EventSetUserAgent");
+            WORKER_LOG("EventSetUserAgent");
             for(auto f:EventSetUserAgent)
                 f(value);
         }
@@ -113,7 +136,7 @@ void CommandParser::Parse(const std::string& Xml)
         if(CommandNode)
         {
             std::string value = CommandNode->value();
-            worker_log("EventSetOpenFileName");
+            WORKER_LOG("EventSetOpenFileName");
             for(auto f:EventSetOpenFileName)
                 f(value);
         }
@@ -122,16 +145,68 @@ void CommandParser::Parse(const std::string& Xml)
         if(CommandNode)
         {
             std::string value = CommandNode->value();
-            worker_log("EventSetStartupScript");
+            WORKER_LOG("EventSetStartupScript");
+            std::string target,script_id;
+
+            for (rapidxml::xml_attribute<> *attr = CommandNode->first_attribute(); attr; attr = attr->next_attribute())
+            {
+                if(std::string(attr->name()) == std::string("target"))
+                {
+                    target = attr->value();
+                }
+
+                if(std::string(attr->name()) == std::string("script_id"))
+                {
+                    script_id = attr->value();
+                }
+            }
+
             for(auto f:EventSetStartupScript)
-                f(value);
+            {
+                f(value, target, script_id);
+            }
+
+        }
+
+        CommandNode = MessagesNode->first_node("SendWorkerSettings");
+        if(CommandNode)
+        {
+            std::string value = CommandNode->value();
+            WORKER_LOG("EventSendWorkerSettings");
+            bool EncodeUtf8 = true;
+            bool RefreshConnections = false;
+            int SkipFrames = 1;
+
+            for (rapidxml::xml_attribute<> *attr = CommandNode->first_attribute(); attr; attr = attr->next_attribute())
+            {
+                if(std::string(attr->name()) == std::string("EncodeUtf8"))
+                {
+                    EncodeUtf8 = std::stoi(attr->value());
+                }
+
+                if(std::string(attr->name()) == std::string("RefreshConnections"))
+                {
+                    RefreshConnections = std::stoi(attr->value());
+                }
+
+                if(std::string(attr->name()) == std::string("SkipFrames"))
+                {
+                    SkipFrames = std::stoi(attr->value());
+                }
+            }
+
+            for(auto f:EventSendWorkerSettings)
+            {
+                f(EncodeUtf8, RefreshConnections, SkipFrames);
+            }
+
         }
 
         CommandNode = MessagesNode->first_node("SetPromptResult");
         if(CommandNode)
         {
             std::string value = CommandNode->value();
-            worker_log("EventSetPromptResult");
+            WORKER_LOG("EventSetPromptResult");
             for(auto f:EventSetPromptResult)
                 f(value);
         }
@@ -145,17 +220,18 @@ void CommandParser::Parse(const std::string& Xml)
             {
                 std::string login = s[0];
                 std::string password = s[1];
-                worker_log("EventSetHttpAuthResult");
+                WORKER_LOG("EventSetHttpAuthResult");
                 for(auto f:EventSetHttpAuthResult)
                     f(login,password);
             }
         }
 
+
         CommandNode = MessagesNode->first_node("GetCookiesForUrl");
         if(CommandNode)
         {
             std::string value = CommandNode->value();
-            worker_log("EventGetCookiesForUrl");
+            WORKER_LOG("EventGetCookiesForUrl");
             for(auto f:EventGetCookiesForUrl)
                 f(value);
         }
@@ -163,8 +239,33 @@ void CommandParser::Parse(const std::string& Xml)
         CommandNode = MessagesNode->first_node("SaveCookies");
         if(CommandNode)
         {
-            worker_log("EventSaveCookies");
+            WORKER_LOG("EventSaveCookies");
             for(auto f:EventSaveCookies)
+                f();
+        }
+
+        CommandNode = MessagesNode->first_node("ClearImageData");
+        if(CommandNode)
+        {
+            WORKER_LOG("EventClearImageData");
+            for(auto f:EventClearImageData)
+                f();
+        }
+
+        CommandNode = MessagesNode->first_node("SetImageData");
+        if(CommandNode)
+        {
+            std::string value = CommandNode->value();
+            WORKER_LOG("EventSetImageData");
+            for(auto f:EventSetImageData)
+                f(value);
+        }
+
+        CommandNode = MessagesNode->first_node("FindImage");
+        if(CommandNode)
+        {
+            WORKER_LOG("EventFindImage");
+            for(auto f:EventFindImage)
                 f();
         }
 
@@ -172,8 +273,17 @@ void CommandParser::Parse(const std::string& Xml)
         if(CommandNode)
         {
             std::string value = CommandNode->value();
-            worker_log("EventRestoreCookies");
+            WORKER_LOG("EventRestoreCookies");
             for(auto f:EventRestoreCookies)
+                f(value);
+        }
+
+        CommandNode = MessagesNode->first_node("RestoreLocalStorage");
+        if(CommandNode)
+        {
+            std::string value = CommandNode->value();
+            WORKER_LOG("EventRestoreLocalStorage");
+            for(auto f:EventRestoreLocalStorage)
                 f(value);
         }
 
@@ -181,7 +291,7 @@ void CommandParser::Parse(const std::string& Xml)
         if(CommandNode)
         {
             std::string value = CommandNode->value();
-            worker_log("DebugVariablesResult");
+            WORKER_LOG("DebugVariablesResult");
             for(auto f:EventDebugVariablesResult)
                 f(value);
         }
@@ -189,7 +299,7 @@ void CommandParser::Parse(const std::string& Xml)
         CommandNode = MessagesNode->first_node("ScriptFinished");
         if(CommandNode)
         {
-            worker_log("ScriptFinished");
+            WORKER_LOG("ScriptFinished");
             for(auto f:EventScriptFinished)
                 f();
         }
@@ -197,7 +307,7 @@ void CommandParser::Parse(const std::string& Xml)
         CommandNode = MessagesNode->first_node("WaitCode");
         if(CommandNode)
         {
-            worker_log("WaitCode");
+            WORKER_LOG("WaitCode");
             for(auto f:EventWaitCode)
                 f();
         }
@@ -205,17 +315,25 @@ void CommandParser::Parse(const std::string& Xml)
         CommandNode = MessagesNode->first_node("StartSection");
         if(CommandNode)
         {
-            worker_log("StartSection");
+            WORKER_LOG("StartSection");
             int value = std::stoi(CommandNode->value());
             for(auto f:EventStartSection)
                 f(value);
         }
 
+        CommandNode = MessagesNode->first_node("SetFontList");
+        if(CommandNode)
+        {
+            WORKER_LOG("SetFontList");
+            std::string value = CommandNode->value();
+            for(auto f:EventSetFontList)
+                f(value);
+        }
 
         CommandNode = MessagesNode->first_node("GetUrl");
         if(CommandNode)
         {
-            worker_log("GetUrl");
+            WORKER_LOG("GetUrl");
             for(auto f:EventGetUrl)
                 f();
         }
@@ -223,7 +341,7 @@ void CommandParser::Parse(const std::string& Xml)
         CommandNode = MessagesNode->first_node("Crush");
         if(CommandNode)
         {
-            worker_log("EventCrush");
+            WORKER_LOG("EventCrush");
             for(auto f:EventCrush)
                 f();
         }
@@ -232,7 +350,7 @@ void CommandParser::Parse(const std::string& Xml)
         if(CommandNode)
         {
             std::string value = CommandNode->value();
-            worker_log("Resize");
+            WORKER_LOG("Resize");
             std::size_t pos = value.find(",");
             if(pos != std::string::npos)
             {
@@ -248,9 +366,19 @@ void CommandParser::Parse(const std::string& Xml)
         if(CommandNode)
         {
             std::string value = CommandNode->value();
-            worker_log("SetWindow");
+            WORKER_LOG("SetWindow");
             
             for(auto f:EventSetWindow)
+                f(value);
+        }
+
+        CommandNode = MessagesNode->first_node("HighlightAction");
+        if(CommandNode)
+        {
+            std::string value = CommandNode->value();
+            WORKER_LOG("EventHighlightAction");
+
+            for(auto f:EventHighlightAction)
                 f(value);
         }
 
@@ -258,7 +386,7 @@ void CommandParser::Parse(const std::string& Xml)
         if(CommandNode)
         {
             std::string value = CommandNode->value();
-            worker_log("MouseClick");
+            WORKER_LOG("MouseClick");
             std::size_t pos = value.find(",");
             if(pos != std::string::npos)
             {
@@ -270,11 +398,22 @@ void CommandParser::Parse(const std::string& Xml)
             }
         }
 
+
+        CommandNode = MessagesNode->first_node("RestoreOriginalStage");
+        if(CommandNode)
+        {
+            WORKER_LOG("RestoreOriginalStage");
+            for(auto f:EventRestoreOriginalStage)
+                f();
+        }
+
+
+
         CommandNode = MessagesNode->first_node("Timezone");
         if(CommandNode)
         {
             std::string value = CommandNode->value();
-            worker_log("Timezone");
+            WORKER_LOG("Timezone");
             for(auto f:EventTimezone)
                 f(std::stoi(value));
         }
@@ -283,7 +422,7 @@ void CommandParser::Parse(const std::string& Xml)
         if(CommandNode)
         {
             std::string value = CommandNode->value();
-            worker_log("Geolocation");
+            WORKER_LOG("Geolocation");
             std::size_t pos = value.find(";");
             if(pos != std::string::npos)
             {
@@ -299,7 +438,7 @@ void CommandParser::Parse(const std::string& Xml)
         if(CommandNode)
         {
             std::string value = CommandNode->value();
-            worker_log("MouseClickUp");
+            WORKER_LOG("MouseClickUp");
             std::size_t pos = value.find(",");
             if(pos != std::string::npos)
             {
@@ -315,7 +454,7 @@ void CommandParser::Parse(const std::string& Xml)
         if(CommandNode)
         {
             std::string value = CommandNode->value();
-            worker_log("MouseClickDown");
+            WORKER_LOG("MouseClickDown");
             std::size_t pos = value.find(",");
             if(pos != std::string::npos)
             {
@@ -332,7 +471,7 @@ void CommandParser::Parse(const std::string& Xml)
         if(CommandNode)
         {
             std::string value = CommandNode->value();
-            worker_log("PopupClose");
+            WORKER_LOG("PopupClose");
             for(auto f:EventPopupClose)
                 f(std::stoi(value));
         }
@@ -341,7 +480,7 @@ void CommandParser::Parse(const std::string& Xml)
         if(CommandNode)
         {
             std::string value = CommandNode->value();
-            worker_log("PopupSelect");
+            WORKER_LOG("PopupSelect");
             for(auto f:EventPopupSelect)
                 f(std::stoi(value));
         }
@@ -350,14 +489,40 @@ void CommandParser::Parse(const std::string& Xml)
         if(CommandNode)
         {
             std::string value = CommandNode->value();
-            worker_log("MouseMove");
+            WORKER_LOG("MouseMove");
             std::size_t pos = value.find(",");
             if(pos != std::string::npos)
             {
                 std::string x = value.substr(0,pos);
                 std::string y = value.substr(pos + 1,value.length() - pos - 1);
+                float speed = -1.0;
+                float gravity = -1.0;
+                float deviation = -1.0;
+                for (rapidxml::xml_attribute<> *attr = CommandNode->first_attribute(); attr; attr = attr->next_attribute())
+                {
+                    if(std::string(attr->name()) == std::string("params"))
+                    {
+                        picojson::value val;
+                        picojson::parse(val,attr->value());
+                        picojson::object obj = val.get<picojson::object>();
+                        if(obj.count("speed")>0)
+                        {
+                            speed = obj["speed"].get<double>();
+                        }
+                        if(obj.count("gravity")>0)
+                        {
+                            gravity = obj["gravity"].get<double>();
+                        }
+                        if(obj.count("deviation")>0)
+                        {
+                            deviation = obj["deviation"].get<double>();
+                        }
+
+                    }
+                }
+
                 for(auto f:EventMouseMove)
-                    f(std::stoi(x),std::stoi(y));
+                    f(std::stoi(x),std::stoi(y),speed,gravity,deviation);
 
             }
         }
@@ -366,7 +531,7 @@ void CommandParser::Parse(const std::string& Xml)
         if(CommandNode)
         {
             std::string value = CommandNode->value();
-            worker_log("Scroll");
+            WORKER_LOG("Scroll");
             std::size_t pos = value.find(",");
             if(pos != std::string::npos)
             {
@@ -382,7 +547,7 @@ void CommandParser::Parse(const std::string& Xml)
         if(CommandNode)
         {
             std::string value = CommandNode->value();
-            worker_log("Render");
+            WORKER_LOG("Render");
             int x=-1,y=-1,width=-1,height=-1;
 
             std::size_t pos = value.find(",");
@@ -415,32 +580,56 @@ void CommandParser::Parse(const std::string& Xml)
         CommandNode = MessagesNode->first_node("AddHeader");
         if(CommandNode)
         {
-            worker_log("AddHeader");
+            WORKER_LOG("AddHeader");
 
             std::string key,value;
+            std::string target;
             for (rapidxml::xml_attribute<> *attr = CommandNode->first_attribute(); attr; attr = attr->next_attribute())
             {
-                worker_log(attr->name());
+                WORKER_LOG(attr->name());
                 if(std::string(attr->name()) == std::string("name"))
                 {
-                    worker_log(attr->value());
+                    WORKER_LOG(attr->value());
                     key = attr->value();
                 }else if(std::string(attr->name()) == std::string("value"))
                 {
-                    worker_log(attr->value());
+                    WORKER_LOG(attr->value());
                     value = attr->value();
+                }else if(std::string(attr->name()) == std::string("target"))
+                {
+                    target = attr->value();
                 }
             }
 
             for(auto f:EventAddHeader)
-                f(key,value);
+                f(key,value,target);
+        }
+
+        CommandNode = MessagesNode->first_node("SetHeaderList");
+        if(CommandNode)
+        {
+            WORKER_LOG("SetHeaderList");
+
+            std::string json;
+            for (rapidxml::xml_attribute<> *attr = CommandNode->first_attribute(); attr; attr = attr->next_attribute())
+            {
+                WORKER_LOG(attr->name());
+                if(std::string(attr->name()) == std::string("json"))
+                {
+                    WORKER_LOG(attr->value());
+                    json = attr->value();
+                }
+            }
+
+            for(auto f:EventSetHeaderList)
+                f(json);
         }
 
 
         CommandNode = MessagesNode->first_node("CleanHeader");
         if(CommandNode)
         {
-            worker_log("CleanHeader");
+            WORKER_LOG("CleanHeader");
             for(auto f:EventCleanHeader)
                 f();
         }
@@ -448,7 +637,7 @@ void CommandParser::Parse(const std::string& Xml)
         CommandNode = MessagesNode->first_node("AddCacheMaskAllow");
         if(CommandNode)
         {
-            worker_log("AddCacheMaskAllow");
+            WORKER_LOG("AddCacheMaskAllow");
             std::string value = CommandNode->value();
             for(auto f:EventAddCacheMaskAllow)
                 f(value);
@@ -459,7 +648,7 @@ void CommandParser::Parse(const std::string& Xml)
         CommandNode = MessagesNode->first_node("AddCacheMaskDeny");
         if(CommandNode)
         {
-            worker_log("AddCacheMaskDeny");
+            WORKER_LOG("AddCacheMaskDeny");
             std::string value = CommandNode->value();
             for(auto f:EventAddCacheMaskDeny)
                 f(value);
@@ -468,7 +657,7 @@ void CommandParser::Parse(const std::string& Xml)
         CommandNode = MessagesNode->first_node("AddRequestMaskAllow");
         if(CommandNode)
         {
-            worker_log("AddRequestMaskAllow");
+            WORKER_LOG("AddRequestMaskAllow");
             std::string value = CommandNode->value();
             for(auto f:EventAddRequestMaskAllow)
                 f(value);
@@ -477,7 +666,7 @@ void CommandParser::Parse(const std::string& Xml)
         CommandNode = MessagesNode->first_node("AddRequestMaskDeny");
         if(CommandNode)
         {
-            worker_log("AddRequestMaskDeny");
+            WORKER_LOG("AddRequestMaskDeny");
             std::string value = CommandNode->value();
             for(auto f:EventAddRequestMaskDeny)
                 f(value);
@@ -486,7 +675,7 @@ void CommandParser::Parse(const std::string& Xml)
         CommandNode = MessagesNode->first_node("ClearCacheMask");
         if(CommandNode)
         {
-            worker_log("ClearCacheMask");
+            WORKER_LOG("ClearCacheMask");
             for(auto f:EventClearCacheMask)
                 f();
         }
@@ -494,15 +683,47 @@ void CommandParser::Parse(const std::string& Xml)
         CommandNode = MessagesNode->first_node("ClearRequestMask");
         if(CommandNode)
         {
-            worker_log("ClearRequestMask");
+            WORKER_LOG("ClearRequestMask");
             for(auto f:EventClearRequestMask)
+                f();
+        }
+
+        CommandNode = MessagesNode->first_node("RestrictPopups");
+        if(CommandNode)
+        {
+            WORKER_LOG("RestrictPopups");
+            for(auto f:EventRestrictPopups)
+                f();
+        }
+
+        CommandNode = MessagesNode->first_node("AllowPopups");
+        if(CommandNode)
+        {
+            WORKER_LOG("AllowPopups");
+            for(auto f:EventAllowPopups)
+                f();
+        }
+
+        CommandNode = MessagesNode->first_node("RestrictDownloads");
+        if(CommandNode)
+        {
+            WORKER_LOG("RestrictDownloads");
+            for(auto f:EventRestrictDownloads)
+                f();
+        }
+
+        CommandNode = MessagesNode->first_node("AllowDownloads");
+        if(CommandNode)
+        {
+            WORKER_LOG("AllowDownloads");
+            for(auto f:EventAllowDownloads)
                 f();
         }
 
         CommandNode = MessagesNode->first_node("ClearLoadedUrl");
         if(CommandNode)
         {
-            worker_log("ClearLoadedUrl");
+            WORKER_LOG("ClearLoadedUrl");
             for(auto f:EventClearLoadedUrl)
                 f();
         }
@@ -510,7 +731,7 @@ void CommandParser::Parse(const std::string& Xml)
         CommandNode = MessagesNode->first_node("ClearCachedData");
         if(CommandNode)
         {
-            worker_log("ClearCachedData");
+            WORKER_LOG("ClearCachedData");
             for(auto f:EventClearCachedData)
                 f();
         }
@@ -518,7 +739,7 @@ void CommandParser::Parse(const std::string& Xml)
         CommandNode = MessagesNode->first_node("ClearAll");
         if(CommandNode)
         {
-            worker_log("ClearAll");
+            WORKER_LOG("ClearAll");
             for(auto f:EventClearAll)
                 f();
         }
@@ -526,7 +747,7 @@ void CommandParser::Parse(const std::string& Xml)
         CommandNode = MessagesNode->first_node("ClearMasks");
         if(CommandNode)
         {
-            worker_log("ClearMasks");
+            WORKER_LOG("ClearMasks");
             for(auto f:EventClearMasks)
                 f();
         }
@@ -534,7 +755,7 @@ void CommandParser::Parse(const std::string& Xml)
         CommandNode = MessagesNode->first_node("ClearData");
         if(CommandNode)
         {
-            worker_log("ClearData");
+            WORKER_LOG("ClearData");
             for(auto f:EventClearData)
                 f();
         }
@@ -542,7 +763,7 @@ void CommandParser::Parse(const std::string& Xml)
         CommandNode = MessagesNode->first_node("FindCacheByMaskBase64");
         if(CommandNode)
         {
-            worker_log("FindCacheByMaskBase64");
+            WORKER_LOG("FindCacheByMaskBase64");
             std::string value = CommandNode->value();
             for(auto f:EventFindCacheByMaskBase64)
                 f(value);
@@ -551,7 +772,7 @@ void CommandParser::Parse(const std::string& Xml)
         CommandNode = MessagesNode->first_node("FindStatusByMask");
         if(CommandNode)
         {
-            worker_log("FindStatusByMask");
+            WORKER_LOG("FindStatusByMask");
             std::string value = CommandNode->value();
             for(auto f:EventFindStatusByMask)
                 f(value);
@@ -560,7 +781,7 @@ void CommandParser::Parse(const std::string& Xml)
         CommandNode = MessagesNode->first_node("FindCacheByMaskString");
         if(CommandNode)
         {
-            worker_log("FindCacheByMaskString");
+            WORKER_LOG("FindCacheByMaskString");
             std::string value = CommandNode->value();
             for(auto f:EventFindCacheByMaskString)
                 f(value);
@@ -569,7 +790,7 @@ void CommandParser::Parse(const std::string& Xml)
         CommandNode = MessagesNode->first_node("IsUrlLoadedByMask");
         if(CommandNode)
         {
-            worker_log("IsUrlLoadedByMask");
+            WORKER_LOG("IsUrlLoadedByMask");
             std::string value = CommandNode->value();
             for(auto f:EventIsUrlLoadedByMask)
                 f(value);
@@ -578,7 +799,7 @@ void CommandParser::Parse(const std::string& Xml)
         CommandNode = MessagesNode->first_node("GetLoadStats");
         if(CommandNode)
         {
-            worker_log("GetLoadStats");
+            WORKER_LOG("GetLoadStats");
             for(auto f:EventGetLoadStats)
                 f();
         }
@@ -587,31 +808,36 @@ void CommandParser::Parse(const std::string& Xml)
         CommandNode = MessagesNode->first_node("Element");
         if(CommandNode)
         {
-            worker_log("Element");
+            WORKER_LOG("Element");
             ElementCommand send;
             CommandNode = CommandNode->first_node();
             send.CommandName = CommandNode->name();
-            worker_log(std::string("command : ") + send.CommandName);
+            WORKER_LOG(std::string("command : ") + send.CommandName);
             for (rapidxml::xml_attribute<> *attr = CommandNode->first_attribute(); attr; attr = attr->next_attribute())
             {
                 if(std::string(attr->name()) == std::string("ID"))
                 {
                     send.CommandId = attr->value();
-                    worker_log(std::string("id : ") + send.CommandId);
+                    WORKER_LOG(std::string("id : ") + send.CommandId);
+                }
+                if(std::string(attr->name()) == std::string("NoWait"))
+                {
+                    send.IsNoWait = std::stoi(attr->value());
+                    WORKER_LOG(std::string("nowait : ") + std::to_string(send.IsNoWait));
                 }
             }
             rapidxml::xml_node<> *A = CommandNode->first_node("A");
             if(A)
             {
                 send.CommandParam1 = A->first_attribute("value")->value();
-                worker_log(std::string("param1 : ") + send.CommandParam1);
+                WORKER_LOG(std::string("param1 : ") + send.CommandParam1);
             }
 
             rapidxml::xml_node<> *B = CommandNode->first_node("B");
             if(B)
             {
                 send.CommandParam2 = B->first_attribute("value")->value();
-                worker_log(std::string("param2 : ") + send.CommandParam2);
+                WORKER_LOG(std::string("param2 : ") + send.CommandParam2);
             }
 
             rapidxml::xml_node<> *Path = CommandNode->first_node("Path");
@@ -622,11 +848,11 @@ void CommandParser::Parse(const std::string& Xml)
                     std::pair<std::string,std::string> p;
                     p.first = path_part->name();
                     p.second = path_part->value();
-                    worker_log(std::string("path1 : ") + p.first);
-                    worker_log(std::string("path2 : ") + p.second);
+                    WORKER_LOG(std::string("path1 : ") + p.first);
+                    WORKER_LOG(std::string("path2 : ") + p.second);
                     if(p.first == "frame")
                     {
-                        send.FrameId = p.second;
+                        send.FrameUrl = p.second;
                     }else
                         send.Path.push_back(p);
                 }
@@ -640,41 +866,45 @@ void CommandParser::Parse(const std::string& Xml)
         CommandNode = MessagesNode->first_node("SetProxy");
         if(CommandNode)
         {
-            worker_log("SetProxy");
+            WORKER_LOG("SetProxy");
 
             std::string server,name,password;
             int Port;
             bool IsHttp;
+            std::string target;
             for (rapidxml::xml_attribute<> *attr = CommandNode->first_attribute(); attr; attr = attr->next_attribute())
             {
-                worker_log(attr->name());
+                WORKER_LOG(attr->name());
                 if(std::string(attr->name()) == std::string("server"))
                 {
-                    worker_log(attr->value());
+                    WORKER_LOG(attr->value());
                     server = attr->value();
                 }else if(std::string(attr->name()) == std::string("Port"))
                 {
-                    worker_log(attr->value());
+                    WORKER_LOG(attr->value());
                     Port = std::stoi(attr->value());
                 }else if(std::string(attr->name()) == std::string("IsHttp"))
                 {
-                    worker_log(attr->value());
+                    WORKER_LOG(attr->value());
                     IsHttp = std::stoi(attr->value());
                 }else if(std::string(attr->name()) == std::string("name"))
                 {
-                    worker_log(attr->value());
+                    WORKER_LOG(attr->value());
                     name = attr->value();
                 }else if(std::string(attr->name()) == std::string("password"))
                 {
-                    worker_log(attr->value());
+                    WORKER_LOG(attr->value());
                     password = attr->value();
+                }else if(std::string(attr->name()) == std::string("target"))
+                {
+                    target = attr->value();
                 }
             }
 
 
 
             for(auto f:EventSetProxy)
-                f(server,Port,IsHttp,name,password);
+                f(server,Port,IsHttp,name,password,target);
         }
     }
 

@@ -1,4 +1,5 @@
 #include "databasestringboxloader.h"
+#include <QTimer>
 #include "every_cpp.h"
 
 namespace BrowserAutomationStudioFramework
@@ -6,6 +7,7 @@ namespace BrowserAutomationStudioFramework
     DatabaseStringBoxLoader::DatabaseStringBoxLoader(QObject *parent) :
         IStringBoxLoader(parent)
     {
+        IsWaitingForLoadRetry = false;
     }
 
     void DatabaseStringBoxLoader::SetDatabaseConnector(IDatabaseConnector *DatabaseConnector)
@@ -20,6 +22,15 @@ namespace BrowserAutomationStudioFramework
 
     void DatabaseStringBoxLoader::Load()
     {
+        if(IsWaitingForLoadRetry)
+            return;
+        LoadRetries = 5;
+        LoadInternal();
+    }
+
+    void DatabaseStringBoxLoader::LoadInternal()
+    {
+        IsWaitingForLoadRetry = false;
         DatabaseSelector Selector;
         Selector.TableId = TableId;
         DatabaseGroups DbGroups;
@@ -30,21 +41,39 @@ namespace BrowserAutomationStudioFramework
         QStringList res;
         if(Connector->WasError())
         {
-            emit DataLoadedCompletely();
+            if(LoadRetries<0)
+            {
+                emit DataLoadedCompletely();
+                return;
+            }else
+            {
+                LoadRetries--;
+                QTimer::singleShot(50,this,SLOT(LoadInternal()));
+                IsWaitingForLoadRetry = true;
+                return;
+            }
         }
 
         foreach(DatabaseItem item, ResData)
         {
             QStringList line;
 
+            if(Columns.empty() || Columns.size() == 1 && Columns[0] == 0)
+            {
+                Columns.clear();
+                for(DatabaseColumn &c: Connector->GetColumns(TableId))
+                {
+                    Columns.append(c.Id);
+                }
+            }
+
             foreach(int ColumnId, Columns)
             {
                 line.append(item.Data[ColumnId].toString());
             }
+            line.append(item.Id);
 
             QString Line = CsvHelper->Generate(line,':');
-            Line.append(QChar(0));
-            Line.append(item.Id);
             res.append(Line);
         }
 
@@ -55,10 +84,10 @@ namespace BrowserAutomationStudioFramework
 
     void DatabaseStringBoxLoader::ItemDeleted(const QString& item)
     {
-        int index = item.indexOf(QChar(0));
-        if(index>=0)
+        QStringList items = CsvHelper->Parse(item);
+        if(!items.isEmpty())
         {
-            QString id = item.right(item.length() - index - 1);
+            QString id = items.last();
 
             DatabaseItems Items;
             Items.IsNull = false;

@@ -7,19 +7,23 @@
 #include "proxydata.h"
 #include "include/cef_base.h"
 #include "inspectresult.h"
+#include "highlightresult.h"
 #include <atomic>
 #include "modulesdata.h"
+#include "configurableitem.h"
+#include "localstoragedata.h"
 
 class BrowserData
 {
 public:
     BrowserData();
 
-    std::map<std::string,std::string> _Headers;
+    ConfigurableItem<std::shared_ptr<std::map<std::string,std::string> > > _Headers;
+    std::vector<std::string> _HeadersDefaults;
     std::string _NextReferrer;
     std::string _OpenFileName;
-    std::string _StartupScript;
-    ProxyData _Proxy;
+    std::map<std::string,ConfigurableItem<std::string> > _StartupScript;
+    ConfigurableItem<ProxyData> _Proxy;
     CefWindowHandle _MainWindowHandle;
     CefWindowHandle _ParentWindowHandle;
     std::atomic<int64> OldestRequestTime;
@@ -36,7 +40,10 @@ public:
     std::atomic_int CursorX;
     std::atomic_int CursorY;
     std::atomic_bool IsRecord;
+    std::atomic_bool AllowPopups;
+    std::atomic_bool AllowDownloads;
     InspectResult _Inspect;
+    HighlightResult _Highlight;
     ModulesDataList _ModulesData;
 
     //Dialogs
@@ -44,12 +51,20 @@ public:
     std::string _HttpAuthLogin;
     std::string _HttpAuthPassword;
 
+    //DragAndDrop
+    bool IsDrag;
+    bool IsMousePress;
+
     //Reset
     std::atomic_bool IsReset;
     std::atomic_bool IsAboutBlankLoaded;
 
     //LocalStorage
-    std::string _LocalStorageData;
+    //LocalStorageData _LocalStorageData;
+
+    //DomainDataClear
+    bool NeedClear;
+    std::vector<std::string> DomainClearData;
 
     //Timezone
     std::atomic_bool TimezoneSelected;

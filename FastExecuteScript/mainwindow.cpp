@@ -37,6 +37,7 @@
 #include "toprightpositioner.h"
 #include "scriptsuspender.h"
 #include <QMessageBox>
+#include <QInputDialog>
 #include <QCloseEvent>
 #include <QDialogButtonBox>
 #include "helper.h"
@@ -51,7 +52,9 @@
 #include "memoryinfo.h"
 #include "loglocationchooser.h"
 #include "properties.h"
+#include "databaseconnectionwindow.h"
 #include <QDirIterator>
+#include "workersettings.h"
 #include "noneencryptor.h"
 
 using namespace BrowserAutomationStudioFramework;
@@ -71,6 +74,9 @@ MainWindow::MainWindow(QWidget *parent) :
     qDebug()<<"Start 018.1";
 
     qsrand(QTime(0,0,0).msecsTo(QTime::currentTime()));
+
+    _TabBlink = new MainWindowTabBlink(this);
+    _TabBlink->SetWidget(this);
     qDebug()<<"Start 018.2";
     ui->setupUi(this);
     qDebug()<<"Start 018.3";
@@ -101,6 +107,28 @@ void MainWindow::SetRemote(const QString& Remote)
     this->Remote = Remote;
 }
 
+void MainWindow::Abort()
+{
+    if(Worker)
+    {
+        QStringList items;
+        items << tr("Stop instant") << tr("Wait each thread");
+
+        bool ok;
+        QString item = QInputDialog::getItem(this, tr("Stop"), tr("Stop type"), items, 0, false, &ok);
+
+        if(Worker)
+        {
+            if(ok && !item.isEmpty())
+            {
+                if(item == items[0])
+                    Worker->Abort();
+                else
+                    Worker->AbortNotInstant();
+            }
+        }
+    }
+}
 
 void MainWindow::Start()
 {
@@ -120,6 +148,12 @@ void MainWindow::Start()
     {
         qDebug()<<"Start 022";
         _DataBaseConnector = new MongoDatabaseConnector(this);
+        {
+            DatabaseConnectionWindow * _DatabaseConnectionWindow = new DatabaseConnectionWindow(_DataBaseConnector);
+            _DatabaseConnectionWindow->SetIsSilent(IsSilent);
+            _DataBaseConnector->SetDatabaseConnectionWindow(_DatabaseConnectionWindow);
+        }
+
         qDebug()<<"Start 023";
         _CsvHelper = new CsvHelper(_DataBaseConnector);
         qDebug()<<"Start 024";
@@ -129,12 +163,22 @@ void MainWindow::Start()
         _DataBaseState = new DatabaseState(this);
         qDebug()<<"Start 026";
         _DataBaseConnector2 = new MongoDatabaseConnector(_DataBaseState);
+        {
+            DatabaseConnectionWindow * _DatabaseConnectionWindow = new DatabaseConnectionWindow(_DataBaseConnector2);
+            _DatabaseConnectionWindow->SetIsSilent(IsSilent);
+            _DataBaseConnector2->SetDatabaseConnectionWindow(_DatabaseConnectionWindow);
+        }
         qDebug()<<"Start 027";
         _DataBaseState->SetDatabaseConnector(_DataBaseConnector2);
         qDebug()<<"Start 028";
         connect(_DataBaseConnector,SIGNAL(GroupManipulated()),_DataBaseState,SLOT(Reload()));
         qDebug()<<"Start 029";
         _DataBaseConnector3 = new MongoDatabaseConnector(this);
+        {
+            DatabaseConnectionWindow * _DatabaseConnectionWindow = new DatabaseConnectionWindow(_DataBaseConnector3);
+            _DatabaseConnectionWindow->SetIsSilent(IsSilent);
+            _DataBaseConnector3->SetDatabaseConnectionWindow(_DatabaseConnectionWindow);
+        }
         qDebug()<<"Start 030";
     }
 
@@ -157,84 +201,25 @@ void MainWindow::Start()
     qDebug()<<"Start 035";
     if(Language.isEmpty())
     {
-        ScriptLanguageChooserDialog LangDialog;
-        LangDialog.SetLanguageModel(LangModel);
-        if(!LangDialog.exec())
+        if(!IsSilent)
         {
-            QTimer::singleShot(50,this,SLOT(Close()));
-            return;
-        }
-        Language = LangDialog.GetLang();
+            ScriptLanguageChooserDialog LangDialog;
+            LangDialog.SetLanguageModel(LangModel);
+            if(!LangDialog.exec())
+            {
+                QTimer::singleShot(50,this,SLOT(Close()));
+                return;
+            }
+            Language = LangDialog.GetLang();
 
-        Settings->setValue("DefaultLanguageScript",Language);
+            Settings->setValue("DefaultLanguageScript",Language);
+        }else
+        {
+            Language = "en";
+        }
     }
     LangModel->SetInterfaceLanguage(Language);
     qDebug()<<"Start 036";
-    if(!DataBaseConnectorPreserved)
-    {
-        qDebug()<<"Start 037";
-        _DataBaseConnector->Init(Language);
-        if(!_DataBaseConnector->Start())
-        {
-            QEventLoop loop;
-            connect(_DataBaseConnector, SIGNAL(Started()), &loop, SLOT(quit()));
-            loop.exec();
-        }
-        qDebug()<<"Start 038";
-        if(_DataBaseConnector->HasDatabase())
-        {
-            qDebug()<<"Start 039";
-            if(_DataBaseConnector->WasError())
-            {
-                QMessageBox::information(0, tr("Database Error"), _DataBaseConnector->GetError());
-                QTimer::singleShot(50,this,SLOT(Close()));
-                return;
-            }
-            qDebug()<<"Start 040";
-
-            if(!_DataBaseConnector2->Start())
-            {
-                QEventLoop loop;
-                connect(_DataBaseConnector2, SIGNAL(Started()), &loop, SLOT(quit()));
-                loop.exec();
-            }
-            qDebug()<<"Start 041";
-            if(_DataBaseConnector2->WasError())
-            {
-                QMessageBox::information(0, tr("Database Error"), _DataBaseConnector2->GetError());
-                QTimer::singleShot(50,this,SLOT(Close()));
-                return;
-            }
-            qDebug()<<"Start 042";
-
-            if(!_DataBaseConnector3->Start())
-            {
-                QEventLoop loop;
-                connect(_DataBaseConnector3, SIGNAL(Started()), &loop, SLOT(quit()));
-                loop.exec();
-            }
-            qDebug()<<"Start 043";
-            if(_DataBaseConnector3->WasError())
-            {
-                QMessageBox::information(0, tr("Database Error"), _DataBaseConnector3->GetError());
-                QTimer::singleShot(50,this,SLOT(Close()));
-                return;
-            }
-            qDebug()<<"Start 044";
-            _DataBaseState->Reload();
-        }else
-        {
-            qDebug()<<"Start 045";
-            ui->actionData->setVisible(false);
-        }
-    }else
-    {
-        qDebug()<<"Start 046";
-        if(!_DataBaseConnector->HasDatabase())
-        {
-            ui->actionData->setVisible(false);
-        }
-    }
 
     qDebug()<<"Start 047";
     TranslateEngine.Translate(Language);
@@ -242,12 +227,18 @@ void MainWindow::Start()
     LangModel->SetScriptAvailableLanguagesString(Language);
     qDebug()<<"Start 048";
 
-    LabelAllLog = new QPushButton(tr("Show all log"),ui->tab_2);
+    LogMenuButton = new QPushButton(ui->tab_2);
+    LogMenuButton->setIcon(QIcon(":/images/menu2.png"));
+    LogMenuButton->setMaximumWidth(30);
+
     TopRightPositioner * AllButtonPositioner = new TopRightPositioner(this);
-    AllButtonPositioner->SetChild(LabelAllLog);
+    AllButtonPositioner->SetChild(LogMenuButton);
     AllButtonPositioner->SetParent(ui->tab_2);
+    AllButtonPositioner->SetMarginRight(30);
+    AllButtonPositioner->SetMarginTop(20);
     AllButtonPositioner->Start();
-    connect(LabelAllLog,SIGNAL(clicked()),this,SLOT(LabelAllLog_Click()));
+    connect(LogMenuButton,SIGNAL(clicked()),this,SLOT(LogMenu_Click()));
+
     qDebug()<<"Start 049";
 
     movie = new QMovie(":/fastexecutescript/images/loading.gif");
@@ -268,8 +259,8 @@ void MainWindow::Start()
         QEventLoop loop;
         Client->Connect(&loop, SLOT(quit()));
         Client->Download(Remote,"project.xml");
-        connect(_DataBaseConnector, SIGNAL(Started()), &loop, SLOT(quit()));
-        loop.exec();
+        //connect(_DataBaseConnector, SIGNAL(Started()), &loop, SLOT(quit()));
+        //loop.exec();
         qDebug()<<"Done downloading. Was Error - "<<Client->WasError()<<". Error string\""<<Client->GetErrorString()<<"\"";
     }
 
@@ -330,6 +321,73 @@ void MainWindow::Start()
         f.close();
     }
 
+    if(!DataBaseConnectorPreserved)
+    {
+        qDebug()<<"Start 037";
+        _DataBaseConnector->Init(Language);
+        if(!_DataBaseConnector->Start(loader.GetSchema(), loader.GetDatabaseId(), loader.GetConnectionIsRemote(), loader.GetConnectionServer(), loader.GetConnectionPort(), loader.GetConnectionLogin(), loader.GetConnectionPassword()))
+        {
+            QEventLoop loop;
+            connect(_DataBaseConnector, SIGNAL(Started()), &loop, SLOT(quit()));
+            loop.exec();
+        }
+        qDebug()<<"Start 038";
+        if(_DataBaseConnector->HasDatabase())
+        {
+            qDebug()<<"Start 039";
+            if(_DataBaseConnector->WasError())
+            {
+                //QMessageBox::information(0, tr("Database Error"), _DataBaseConnector->GetError());
+                QTimer::singleShot(50,this,SLOT(Close()));
+                return;
+            }
+            qDebug()<<"Start 040";
+
+            if(!_DataBaseConnector2->Start(loader.GetSchema(), loader.GetDatabaseId(), loader.GetConnectionIsRemote(), loader.GetConnectionServer(), loader.GetConnectionPort(), loader.GetConnectionLogin(), loader.GetConnectionPassword()))
+            {
+                QEventLoop loop;
+                connect(_DataBaseConnector2, SIGNAL(Started()), &loop, SLOT(quit()));
+                loop.exec();
+            }
+            qDebug()<<"Start 041";
+            if(_DataBaseConnector2->WasError())
+            {
+                //QMessageBox::information(0, tr("Database Error"), _DataBaseConnector2->GetError());
+                QTimer::singleShot(50,this,SLOT(Close()));
+                return;
+            }
+            qDebug()<<"Start 042";
+
+            if(!_DataBaseConnector3->Start(loader.GetSchema(), loader.GetDatabaseId(), loader.GetConnectionIsRemote(), loader.GetConnectionServer(), loader.GetConnectionPort(), loader.GetConnectionLogin(), loader.GetConnectionPassword()))
+            {
+                QEventLoop loop;
+                connect(_DataBaseConnector3, SIGNAL(Started()), &loop, SLOT(quit()));
+                loop.exec();
+            }
+            qDebug()<<"Start 043";
+            if(_DataBaseConnector3->WasError())
+            {
+                //QMessageBox::information(0, tr("Database Error"), _DataBaseConnector3->GetError());
+                QTimer::singleShot(50,this,SLOT(Close()));
+                return;
+            }
+            qDebug()<<"Start 044";
+            _DataBaseState->Reload();
+        }else
+        {
+            qDebug()<<"Start 045";
+            ui->actionData->setVisible(false);
+        }
+    }else
+    {
+        qDebug()<<"Start 046";
+        if(!_DataBaseConnector->HasDatabase())
+        {
+            ui->actionData->setVisible(false);
+        }
+    }
+
+
 
     this->setWindowTitle(QString("%1(%2)").arg(loader.GetScriptName()).arg(loader.GetScriptVersion()));
 
@@ -356,7 +414,7 @@ void MainWindow::Start()
     if(true/*Res->NeedToFillByUser()*/)
     {
         //Create dialog
-        AskUserForResourcesDialog ask;
+        AskUserForResourcesDialog ask(Settings->value("AskUserForResourcesWidth", 900).toInt(),Settings->value("AskUserForResourcesHeight", 600).toInt());
         Ask = &ask;
 
 
@@ -403,12 +461,21 @@ void MainWindow::Start()
         }
 
         //Ask user for input
-        if(!IsSilent && !ask.exec())
+        if(!IsSilent)
         {
-            QTimer::singleShot(50,this,SLOT(Close()));
-            delete UserWidgetControllerPointer;
-            UserWidgetControllerPointer = 0;
-            return;
+            bool ask_exec_res = ask.exec();
+
+            Settings->setValue("AskUserForResourcesWidth", ask.width());
+            Settings->setValue("AskUserForResourcesHeight", ask.height());
+            Settings->sync();
+
+            if(!ask_exec_res)
+            {
+                QTimer::singleShot(50,this,SLOT(Close()));
+                delete UserWidgetControllerPointer;
+                UserWidgetControllerPointer = 0;
+                return;
+            }
         }
 
         //Save defaults
@@ -447,7 +514,18 @@ void MainWindow::Start()
 
     //Prepare Worker
     ScriptMultiWorker* worker = new ScriptMultiWorker(this);
+    WorkerSettings *_WorkerSettings = new WorkerSettings(worker);
+    _WorkerSettings->SetWorkerPathSafe(Settings->value("Worker5Safe",QVariant("./Worker/Worker.exe")).toString());
+    _WorkerSettings->SetWorkerPathNotSafe(Settings->value("Worker5NotSafe",QVariant("./WorkerNotSafe/Worker.exe")).toString());
+    {
+        QSettings SettingsWorker("settings_worker.ini",QSettings::IniFormat);
+        _WorkerSettings->ParseFromSettings(SettingsWorker);
+    }
+    worker->SetWorkerSettings(_WorkerSettings);
+
+    worker->SetProjectPath(QDir::current().absoluteFilePath("project.xml"));
     worker->SetModuleManager(_ModuleManager);
+    worker->SetStringBuilder(StringBuild);
     worker->SetAdditionEngineScripts(_ModuleManager->GetModuleEngineCode());
     worker->SetPreprocessor(_Preprocessor);
 
@@ -639,6 +717,8 @@ void MainWindow::Start()
     FileLoggerLog->SetFileName(LogFileName);
     PlainTextLogger * PlainTextLoggerLog = new PlainTextLogger(ComplexLoggerLog);
     PlainTextLoggerLog->SetPlainTextElement(ui->Results);
+    PlainTextLoggerLog->SetReplaceActionIdWithColor();
+
     ComplexLoggerLog->AddLogger(FileLoggerLog);
     ComplexLoggerLog->AddLogger(PlainTextLoggerLog);
 
@@ -681,11 +761,8 @@ void MainWindow::Start()
     Worker->SetHelperFactory(_HelperFactory);
 
     Worker->AddModule(new MemoryInfo(worker),"MemoryInfo",true,true);
-    /*PeriodicalHttpRequest * SmsRegPeriodicalHttpRequest = new PeriodicalHttpRequest(this);
-    SmsRegPeriodicalHttpRequest->SetHttpClientFactory(_HttpClientFactory);
-    worker->AddModule(SmsRegPeriodicalHttpRequest,"SmsRegPeriodicalHttpRequest",false,true);*/
 
-    connect(ui->actionStop,SIGNAL(triggered()),worker,SLOT(Abort()));
+    connect(ui->actionStop,SIGNAL(triggered()),this,SLOT(Abort()));
     connect(ui->actionResources_Report,SIGNAL(triggered()),this,SLOT(ResourcesReport()));
 
     TrayNotifier->Start();
@@ -1059,11 +1136,6 @@ void MainWindow::InitBrowserList(const QString& WrokerType)
         connect(sf,SIGNAL(OnBrowserCreated()),this,SLOT(ShowBrowserPanel()));
         sf->SetLanguage(Language);
         ProcessComunicatorFactory *cf = new ProcessComunicatorFactory(sf);
-        if(WrokerType == "MultiProcessQt4")
-            cf->SetProcessName(Settings->value("Worker4",QVariant("../worker/Worker.exe")).toString());
-        else if (WrokerType == "MultiProcessQt5")
-            cf->SetProcessName(Settings->value("Worker5",QVariant("./worker/Worker.exe")).toString());
-
         cf->SetCommandLineParams(QStringList()<<"%keyin%"<<"%keyout%"<<"%pid%");
 
         sf->SetProcessComunicatorFactory(cf);
@@ -1123,7 +1195,15 @@ void MainWindow::UpdateCaptchaSize(int size)
         l->addWidget(cw->GetWidget());
         ui->tabWidget->addTab(w,"Captcha");
     }
-    ui->tabWidget->setTabText (2, QString("Captcha (%1)").arg(size));
+
+    QString text = QString(tr("Captcha (%1)")).arg(size);
+    ui->tabWidget->setTabText (2, text);
+
+    _TabBlink->SetText(text.split(" ").first());
+    if(size > 0)
+        _TabBlink->Start();
+    else
+        _TabBlink->Stop();
 }
 
 
@@ -1134,10 +1214,27 @@ MainWindow::~MainWindow()
 
 
 
-void MainWindow::LabelAllLog_Click()
+void MainWindow::LogMenu_Click()
 {
-    QFileInfo info(LogFileName);
-    QDesktopServices::openUrl(QUrl::fromLocalFile(info.absoluteFilePath()));
+    QPoint globalPos = LogMenuButton->mapToGlobal(QPoint(0,LogMenuButton->height()));
+
+    QMenu myMenu;
+    myMenu.setStyleSheet("QMenu{background-color:#353535} QMenu::item:selected{color:black;background-color:#c663ff} ");
+    QAction * AllLogAction = myMenu.addAction(QString(tr("All log")));
+    QAction * ClearLogAction = myMenu.addAction(QString(tr("Clear log")));
+
+    QAction *res = myMenu.exec(globalPos);
+    if(AllLogAction == res)
+    {
+        QFileInfo info(LogFileName);
+        QDesktopServices::openUrl(QUrl::fromLocalFile(info.absoluteFilePath()));
+    }
+    if(ClearLogAction == res)
+    {
+        if(Worker)
+            Worker->GetLogger()->Clear();
+        ui->Results->setHtml("");
+    }
 }
 
 void MainWindow::changeEvent(QEvent *e)

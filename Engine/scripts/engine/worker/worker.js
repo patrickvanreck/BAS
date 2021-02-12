@@ -1,5 +1,6 @@
 VAR_WAS_ERROR = false;
 VAR_LAST_ERROR = "";
+_BAS_SOLVER_PROPERTIES = {}
 
 function _ensure_browser_created()
 {
@@ -11,6 +12,11 @@ function _simulate_crush(callback)
 {
     _ensure_browser_created();
     Browser.SimulateCrush(_get_function_body(callback));
+}
+
+function _settings(json, callback)
+{
+    Browser.SendWorkerSettings(JSON.stringify(json), "if(_result())ScriptWorker.AttachNetworkAccessManager();" + _get_function_body(callback))
 }
 
 function new_browser(callback)
@@ -98,10 +104,73 @@ function scroll(x, y, callback)
     Browser.Scroll(x,y,_get_function_body(callback))
 }
 
-function move(x, y, callback)
+_DEFAULT_MOVE_PARAMS = {}
+
+function _default_move_params(params)
 {
+    _DEFAULT_MOVE_PARAMS = params
+}
+
+function move()
+{
+    var length = arguments.length
+
+    var x = arguments[0]
+    var y = arguments[1]
+    var params = arguments[2]
+    var callback = arguments[3]
+
+
+    if(length == 4)
+    {
+        x = arguments[0]
+        y = arguments[1]
+        params = arguments[2]
+        callback = arguments[3]
+    }else if(length == 3)
+    {
+        x = arguments[0]
+        y = arguments[1]
+        params = {}
+        callback = arguments[2]
+    }else if(length == 2)
+    {
+        X = parseInt(_result().split(",")[0])
+        Y = parseInt(_result().split(",")[1])
+        x = X
+        y = Y
+        params = arguments[0]
+        callback = arguments[1]
+    }else if(length == 1)
+    {
+        X = parseInt(_result().split(",")[0])
+        Y = parseInt(_result().split(",")[1])
+        x = X
+        y = Y
+        callback = arguments[0]
+    }else
+    {
+        fail("move, wrong number of arguments")
+    }
+
+    if(Object.keys(params).length == 0)
+    {
+        params = _DEFAULT_MOVE_PARAMS
+    }
     _ensure_browser_created();
-    Browser.MouseMove(x,y,_get_function_body(callback))
+    Browser.MouseMove(x,y,JSON.stringify(params),_get_function_body(callback))
+}
+
+function _clarify()
+{
+    _MOUSE_SETTINGS = _arguments()
+    _if(_result().length > 0, function(){
+        X = parseInt(_result().split(",")[0])
+        Y = parseInt(_result().split(",")[1])
+        move(X,Y, _MOUSE_SETTINGS, function(){
+            delete _MOUSE_SETTINGS
+        })
+    }, function(){delete _MOUSE_SETTINGS})
 }
 
 function wait_code(callback)
@@ -177,6 +246,7 @@ function resize(x, y, callback)
 function reset(callback)
 {
     _ensure_browser_created();
+    _DEFAULT_MOVE_PARAMS = {}
     Browser.Reset(_get_function_body(callback));
 }
 
@@ -204,10 +274,21 @@ function restore_cookies(cookies, callback)
     Browser.RestoreCookies(cookies, _get_function_body(callback));
 }
 
+function restore_localstorage(localstorage, callback)
+{
+    _ensure_browser_created();
+    Browser.RestoreLocalStorage(localstorage, _get_function_body(callback));
+}
+
 function page()
 {
     _ensure_browser_created();
     return ScriptWorker.GetRootElement();
+}
+
+function clear_log()
+{
+    Logger.Clear();
 }
 
 function log(text)
@@ -313,6 +394,30 @@ function frame(name)
     return page().frame(name);
 }
 
+function frame_css(name)
+{
+    _ensure_browser_created();
+    return page().frame_css(name);
+}
+
+function xpath(name)
+{
+    _ensure_browser_created();
+    return page().xpath(name);
+}
+
+function xpath_all(name)
+{
+    _ensure_browser_created();
+    return page().xpath_all(name);
+}
+
+function frame_match(name)
+{
+    _ensure_browser_created();
+    return page().frame_match(name);
+}
+
 
 function position(x, y)
 {
@@ -340,7 +445,22 @@ function all(text)
 
 function thread_number()
 {
-    return ThreadNumber;
+    return ScriptWorker.GetThreadNumber();
+}
+
+function success_number()
+{
+    return ScriptWorker.GetSuccessNumber();
+}
+
+function project_path()
+{
+    return ScriptWorker.GetProjectPath();
+}
+
+function fail_number()
+{
+    return ScriptWorker.GetFailNumber();
 }
 
 function sleep(milliseconds, callback)
@@ -354,10 +474,23 @@ function script(text, callback)
     page().script(text,callback);
 }
 
+function font_list(fonts, callback)
+{
+    _ensure_browser_created();
+    Browser.SetFontList(fonts,_get_function_body(callback));
+}
+
+
 function onloadjavascript(text, callback)
 {
     _ensure_browser_created();
-    Browser.SetStartupScript(text,_get_function_body(callback));
+    Browser.SetStartupScript(text,"Main",_get_target(),_get_function_body(callback));
+}
+
+function onloadjavascriptinternal(text, script_id, callback)
+{
+    _ensure_browser_created();
+    Browser.SetStartupScript(text,script_id,_get_target(),_get_function_body(callback));
 }
 
 function agent(text, callback)
@@ -369,32 +502,56 @@ function agent(text, callback)
 
 function antigate(key)
 {
-    ScriptWorker.GetSolver("antigate").SetProperty("key",key);
+    solver_property("antigate","key",key)
 }
 
 function rucaptcha(key)
 {
-    ScriptWorker.GetSolver("rucaptcha").SetProperty("key",key);
+    solver_property("rucaptcha","key",key)
 }
 
 function twocaptcha(key)
 {
-    ScriptWorker.GetSolver("2captcha").SetProperty("key",key);
+    solver_property("2captcha","key",key)
 }
 
 function capmonster(key)
 {
-    ScriptWorker.GetSolver("capmonster").SetProperty("key",key);
+    solver_property("capmonster","key",key)
+}
+
+function solver_properties_clear(solver)
+{
+    _BAS_SOLVER_PROPERTIES[solver] = {}
 }
 
 function solver_property(solver,key,value)
 {
-    ScriptWorker.GetSolver(solver).SetProperty(key,value);
+    var h;
+    if(!(solver in _BAS_SOLVER_PROPERTIES && _BAS_SOLVER_PROPERTIES[solver]))
+    {
+        _BAS_SOLVER_PROPERTIES[solver] = {}
+    }
+    h = _BAS_SOLVER_PROPERTIES[solver]
+
+    h[key] = value
+
+    _BAS_SOLVER_PROPERTIES[solver] = h
 }
 
 function dbc(key)
 {
-    ScriptWorker.GetSolver("dbc").SetProperty("key",key);
+    solver_property("dbc","key",key)
+}
+
+function _solver_properties_list(solver)
+{
+    var h;
+    if(!(solver in _BAS_SOLVER_PROPERTIES && _BAS_SOLVER_PROPERTIES[solver]))
+        _BAS_SOLVER_PROPERTIES[solver] = {}
+
+    h = _BAS_SOLVER_PROPERTIES[solver]
+    return Object.keys(h).reduce(function(a,k){a.push(k);a.push(h[k]);return a},[])
 }
 
 function solve(match, url, callback)
@@ -408,7 +565,7 @@ function solve(match, url, callback)
             fail("CAPTCHA_FAIL : No image in cache");
         }
         cache_get_base64(_ENGINE_CALLBACK[1],function(){
-            ScriptWorker.Solve(_ENGINE_CALLBACK[0], _result(),_get_function_body(_ENGINE_CALLBACK[2]));
+            ScriptWorker.Solve(_ENGINE_CALLBACK[0], _result(),_solver_properties_list(_ENGINE_CALLBACK[0]),_get_function_body(_ENGINE_CALLBACK[2]));
         })
     })
 }
@@ -417,7 +574,13 @@ function solve(match, url, callback)
 function solve_base64(match, data_base64, callback)
 {
     LAST_CAPTCHA_METHOD = match
-    ScriptWorker.Solve(match, data_base64,_get_function_body(callback));
+    ScriptWorker.Solve(match, data_base64,_solver_properties_list(match),_get_function_body(callback));
+}
+
+function solve_base64_no_fail(match, data_base64, callback)
+{
+    LAST_CAPTCHA_METHOD = match
+    ScriptWorker.SolveNoFail(match, data_base64,_solver_properties_list(match),_get_function_body(callback));
 }
 
 function solver_failed()
@@ -559,13 +722,42 @@ function DEC(callback)
     ScriptWorker.Decrypt(callback);
 }
 
-function db_add_record(group_id, data_list, table_id)
+function _db_add_record(group_id, data_list, table_id)
 {
-    ScriptWorker.DatabaseAddRecord(group_id, data_list, table_id);
+    return ScriptWorker.DatabaseAddRecord(group_id, data_list, table_id);
 }
+function _db_select_records(selector, page_number,page_size, table_id)
+{
+    return ScriptWorker.DatabaseSelectRecords(JSON.stringify(selector),page_number,page_size, table_id);
+}
+
+function _db_delete_records(selector, table_id)
+{
+    return ScriptWorker.DatabaseDeleteRecords(JSON.stringify(selector),table_id);
+}
+
+
+function _db_update_record(record_id, data_list, table_id)
+{
+    return ScriptWorker.DatabaseUpdateRecord(record_id, data_list, table_id);
+}
+
+function _db_add_group(group_name, group_description, table_id)
+{
+    return ScriptWorker.DatabaseAddGroup(group_name, group_description, table_id);
+}
+
 
 function _on_start()
 {
+    if(ScriptWorker.SubstageGetParentId() > 0)
+    {
+        _call(eval(ScriptWorker.SubstageGetStartingFunction()), null, function(){
+            success("")
+        })
+        return
+    }
+
     if(typeof(OnApplicationStart) == "undefined")
     {
         _break(1)
@@ -604,6 +796,11 @@ function native_async(dll,func,data,callback)
     ScriptWorker.ExecuteNativeModuleCodeAsync(dll,func,data,_get_function_body(callback));
 }
 
+function general_timeout_next(timeout)
+{
+    ScriptWorker.SetGeneralWaitTimeoutNext(timeout);
+}
+
 function general_timeout(timeout)
 {
     ScriptWorker.SetGeneralWaitTimeout(timeout);
@@ -613,6 +810,11 @@ function general_timeout(timeout)
 function async_load_timeout(timeout)
 {
     BROWSERAUTOMATIONSTUDIO_FULL_LOAD_TIMEOUT = Math.floor(timeout/1000);
+}
+
+function solver_timeout_next(timeout)
+{
+    ScriptWorker.SetSolverWaitTimeoutNext(timeout);
 }
 
 function solver_timeout(timeout)

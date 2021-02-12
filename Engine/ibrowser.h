@@ -7,6 +7,7 @@
 #include "iwebelement.h"
 #include "inetworkaccessmanager.h"
 #include "inetworkaccessmanagerfactory.h"
+#include "iworkersettings.h"
 
 namespace BrowserAutomationStudioFramework
 {
@@ -31,6 +32,7 @@ namespace BrowserAutomationStudioFramework
         virtual void GetCookiesForUrl(const QString& url, const QString& callback) = 0;
         virtual void SaveCookies(const QString& callback) = 0;
         virtual void RestoreCookies(const QString& cookies, const QString& callback) = 0;
+        virtual void RestoreLocalStorage(const QString& localstorage, const QString& callback) = 0;
         virtual IWebElement* GetRootElement() = 0;
         virtual void GetUrl(const QString& callback) = 0;
         virtual void CreateNewBrowser(bool ForseNewBrowserCreation, const QString& callback) = 0;
@@ -40,8 +42,11 @@ namespace BrowserAutomationStudioFramework
         virtual IScriptResources* GetScriptResources() = 0;
         virtual void SetWorker(IWorker* Worker) = 0;
         virtual IWorker* GetWorker() = 0;
+        virtual void SetWorkerSettings(IWorkerSettings *WorkerSettings) = 0;
+        virtual IWorkerSettings * GetWorkerSettings() = 0;
         virtual void SetOpenFileName(const QString & OpenFileName, const QString& callback) = 0;
-        virtual void SetStartupScript(const QString& script, const QString& callback) = 0;
+        virtual void SetStartupScript(const QString& script,const QString& script_id, const QString& target, const QString& callback) = 0;
+        virtual void SetFontList(const QString& fonts, const QString& callback) = 0;
         virtual void SetPromptResult(const QString & Text, const QString& callback) = 0;
         virtual void SetHttpAuthResult(const QString & Login, const QString & Password, const QString& callback) = 0;
         virtual void MouseClickInstant(int x, int y) = 0;
@@ -49,7 +54,7 @@ namespace BrowserAutomationStudioFramework
         virtual void MouseClickUp(int x, int y, const QString& callback) = 0;
         virtual void MouseClickDown(int x, int y, const QString& callback) = 0;
 
-        virtual void MouseMove(int x, int y, const QString& callback) = 0;
+        virtual void MouseMove(int x, int y, const QString& params, const QString& callback) = 0;
         virtual void Timezone(int offset, const QString& callback) = 0;
         virtual void Geolocation(float latitude, float longitude, const QString& callback) = 0;
         virtual void PopupClose(int index, const QString& callback) = 0;
@@ -57,6 +62,12 @@ namespace BrowserAutomationStudioFramework
         virtual void Scroll(int x, int y, const QString& callback) = 0;
         virtual void Render(int x, int y, int width, int height, const QString& callback) = 0;
         virtual void DebugVariablesResult(const QString& data, const QString& callback) = 0;
+        virtual void SendWorkerSettings(const QString& json, const QString& callback) = 0;
+
+
+        virtual void ClearImageData(const QString& callback) = 0;
+        virtual void SetImageData(const QString& base64, const QString& callback) = 0;
+        virtual void FindImage(const QString& callback) = 0;
 
         virtual void Resize(int x, int y, const QString& callback) = 0;
         virtual void Reset(const QString& callback) = 0;
@@ -67,6 +78,8 @@ namespace BrowserAutomationStudioFramework
 
         virtual void OnSupend() = 0;
         virtual void SimulateCrush(const QString& callback) = 0;
+
+
     };
 
 }

@@ -11,6 +11,12 @@ namespace BrowserAutomationStudioFramework
         const char alphanum[] = "abcdefghijklmnopqrstuvwxyz";
         for(int i = 0;i<10;i++)
             ID += QString(alphanum[qrand() % (sizeof(alphanum) - 1)]);
+        IsNoWait = false;
+    }
+
+    void SubprocessWebElement::SetNoWait()
+    {
+        IsNoWait = true;
     }
 
     QString SubprocessWebElement::GetSelectorString()
@@ -34,7 +40,6 @@ namespace BrowserAutomationStudioFramework
     }
     SubprocessWebElement::~SubprocessWebElement()
     {
-
     }
 
     QRect SubprocessWebElement::GetGeometry()
@@ -120,6 +125,11 @@ namespace BrowserAutomationStudioFramework
             }else if(xmlReader.name() == "submit" && token == QXmlStreamReader::StartElement)
             {
                 emit submit();
+            }else if(xmlReader.name() == "clarify" && token == QXmlStreamReader::StartElement)
+            {
+                xmlReader.readNext();
+                Worker->SetAsyncResult(QScriptValue(xmlReader.text().toString()));
+                emit clarify();
             }else if(xmlReader.name() == "style" && token == QXmlStreamReader::StartElement)
             {
                 xmlReader.readNext();
@@ -153,6 +163,9 @@ namespace BrowserAutomationStudioFramework
                 xmlReader.readNext();
                 Worker->SetAsyncResult(QScriptValue(xmlReader.text().toString().toInt()));
                 emit length();
+            }else if(xmlReader.name() == "highlight" && token == QXmlStreamReader::StartElement)
+            {
+                emit highlight();
             }else if(xmlReader.name() == "random_point" && token == QXmlStreamReader::StartElement)
             {
                 xmlReader.readNext();
@@ -202,6 +215,8 @@ namespace BrowserAutomationStudioFramework
         xmlWriter.writeStartElement("Element");
             xmlWriter.writeStartElement(ElementName);
             xmlWriter.writeAttribute("ID",ID);
+
+            xmlWriter.writeAttribute("NoWait",QString::number(IsNoWait));
 
             xmlWriter.writeStartElement("A");
             xmlWriter.writeAttribute("value",Text1);
@@ -322,6 +337,13 @@ namespace BrowserAutomationStudioFramework
         Worker->GetWaiter()->WaitForSignal(this,SIGNAL(type()), Worker,SLOT(RunSubScript()), Worker, SLOT(FailBecauseOfTimeout()));
         Worker->GetProcessComunicator()->Send(CreateXmlElement("type",text, QString::number(interval)));
     }
+    void SubprocessWebElement::clarify(int x, int y, const QString& callback)
+    {
+        Worker->SetScript(PrepareCallback(callback));
+        Worker->SetFailMessage(tr("Timeout during ") + QString("clarify for") + GetSelectorString());
+        Worker->GetWaiter()->WaitForSignal(this,SIGNAL(clarify()), Worker,SLOT(RunSubScript()), Worker, SLOT(FailBecauseOfTimeout()));
+        Worker->GetProcessComunicator()->Send(CreateXmlElement("clarify",QString::number(x), QString::number(y)));
+    }
     void SubprocessWebElement::type(const QString& text, const QString& callback)
     {
         type(text,10,callback);
@@ -338,6 +360,7 @@ namespace BrowserAutomationStudioFramework
         Worker->SetScript(PrepareCallback(callback));
         Worker->SetFailMessage(tr("Timeout during ") + QString("exist for") + GetSelectorString());
         Worker->GetWaiter()->WaitForSignal(this,SIGNAL(exist()), Worker,SLOT(RunSubScript()), Worker, SLOT(FailBecauseOfTimeout()));
+        //qDebug()<<"exist"<<GetSelectorString()<<Worker;
         Worker->GetProcessComunicator()->Send(CreateXmlElement("exist"));
     }
     void SubprocessWebElement::submit(const QString& callback)
@@ -413,11 +436,72 @@ namespace BrowserAutomationStudioFramework
         return element;
     }
 
+    IWebElement* SubprocessWebElement::nowait()
+    {
+        SubprocessWebElement *element = new SubprocessWebElement();
+        element->Selector = this->Selector;
+        element->SetNoWait();
+        element->Worker = Worker;
+        connect(Worker->GetProcessComunicator(),SIGNAL(Received(QString)),element,SLOT(Received(QString)));
+        return element;
+    }
+
     IWebElement* SubprocessWebElement::frame(const QString& name)
     {
         SubprocessWebElement *element = new SubprocessWebElement();
         element->Selector = this->Selector;
         element->AddSelector("frame",name);
+        element->Worker = Worker;
+        connect(Worker->GetProcessComunicator(),SIGNAL(Received(QString)),element,SLOT(Received(QString)));
+        return element;
+    }
+
+
+    IWebElement* SubprocessWebElement::frame_css(const QString& name)
+    {
+        SubprocessWebElement *element = new SubprocessWebElement();
+        element->Selector = this->Selector;
+        element->AddSelector("frame_css",name);
+        element->Worker = Worker;
+        connect(Worker->GetProcessComunicator(),SIGNAL(Received(QString)),element,SLOT(Received(QString)));
+        return element;
+    }
+
+    IWebElement* SubprocessWebElement::frame_match(const QString& name)
+    {
+        SubprocessWebElement *element = new SubprocessWebElement();
+        element->Selector = this->Selector;
+        element->AddSelector("frame_match",name);
+        element->Worker = Worker;
+        connect(Worker->GetProcessComunicator(),SIGNAL(Received(QString)),element,SLOT(Received(QString)));
+        return element;
+    }
+
+    IWebElement* SubprocessWebElement::frame_element()
+    {
+        SubprocessWebElement *element = new SubprocessWebElement();
+        element->Selector = this->Selector;
+        element->AddSelector("frame_element","");
+        element->Worker = Worker;
+        connect(Worker->GetProcessComunicator(),SIGNAL(Received(QString)),element,SLOT(Received(QString)));
+        return element;
+    }
+
+    IWebElement* SubprocessWebElement::xpath(const QString& name)
+    {
+        SubprocessWebElement *element = new SubprocessWebElement();
+        element->Selector = this->Selector;
+        element->AddSelector("xpath",name);
+        element->Worker = Worker;
+        connect(Worker->GetProcessComunicator(),SIGNAL(Received(QString)),element,SLOT(Received(QString)));
+        return element;
+    }
+
+    IWebElement* SubprocessWebElement::xpath_all(const QString& name)
+    {
+        SubprocessWebElement *element = new SubprocessWebElement();
+        element->Selector = this->Selector;
+        element->AddSelector("xpath_all",name);
         element->Worker = Worker;
         connect(Worker->GetProcessComunicator(),SIGNAL(Received(QString)),element,SLOT(Received(QString)));
         return element;
@@ -440,6 +524,15 @@ namespace BrowserAutomationStudioFramework
         Worker->GetWaiter()->WaitForSignal(this,SIGNAL(length()), Worker,SLOT(RunSubScript()), Worker, SLOT(FailBecauseOfTimeout()));
         Worker->GetProcessComunicator()->Send(CreateXmlElement("length"));
     }
+
+    void SubprocessWebElement::highlight(const QString& callback)
+    {
+        Worker->SetScript(PrepareCallback(callback));
+        Worker->SetFailMessage(tr("Timeout during ") + QString("highlight for") + GetSelectorString());
+        Worker->GetWaiter()->WaitForSignal(this,SIGNAL(highlight()), Worker,SLOT(RunSubScript()), Worker, SLOT(FailBecauseOfTimeout()));
+        Worker->GetProcessComunicator()->Send(CreateXmlElement("highlight"));
+    }
+
 
     IWebElement* SubprocessWebElement::at(int at)
     {

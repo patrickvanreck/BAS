@@ -199,6 +199,11 @@ body
  z-index:99999999;  
 }
 
+.bootbox-confirm
+{
+ z-index:99999999;  
+}
+
 #VariableModal
 {
  z-index:99999999; 
@@ -214,7 +219,22 @@ body
  z-index:99999999; 
 }
 
+#TimeoutModal
+{
+ z-index:99999999; 
+}
+
 #WaitingModal
+{
+ z-index:99999999; 
+}
+
+#LabelModal
+{
+ z-index:99999999; 
+}
+
+#DatabaseFilterModal
 {
  z-index:99999999; 
 }

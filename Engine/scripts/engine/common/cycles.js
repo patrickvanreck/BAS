@@ -3,6 +3,7 @@ VAR_FOREACH_DATA = ""
 LINK_REGEXP = /https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-z]{2,6}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*)/g
 VAR_FOR_EACH_CSS = "html"
 VAR_FOR_EACH_MATCH = "a"
+VAR_FOR_EACH_XPATH = "//html"
 IF_ELSE_EXPRESSION = true;
 
 function Cycle(Next,Break)
@@ -358,6 +359,11 @@ function _call(f,a,n)
 
 }
 
+function _call_section(func,threads,success_number,fail_number,callback)
+{
+    ScriptWorker.SubstageCall(func.name,threads,success_number,fail_number,_get_function_body(callback))
+}
+
 function _result()
 {
     return CYCLES.Result
@@ -387,3 +393,27 @@ function _rewind(arg)
     CYCLES.Rewind(arg);
 }
 
+function _goto(label, callback)
+{
+
+    if(typeof(_BAS_GOTO_DATA) == "undefined" || !(label in _BAS_GOTO_DATA))
+    {
+        fail("Goto to non existing label " + label)
+        return
+    }
+    _kill_call_stack()
+    ScriptWorker.SetScript(_get_function_body(_BAS_GOTO_DATA[label]))
+    ScriptWorker.RunSubScript()
+}
+
+function _fast_goto(label, callback)
+{
+
+    if(typeof(_BAS_GOTO_DATA) == "undefined" || !(label in _BAS_GOTO_DATA))
+    {
+        fail("Goto to non existing label " + label)
+        return
+    }
+    ScriptWorker.SetScript(_get_function_body(_BAS_GOTO_DATA[label]))
+    ScriptWorker.RunSubScript()
+}

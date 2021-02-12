@@ -10,8 +10,10 @@
 #include "settings.h"
 #include "log.h"
 #include "refcountpublic.h"
+#include "handlersmanager.h"
+#include "postmanager.h"
 
-
+class HandlersManager;
 
 class MainHandler : public CefClient, public CefDownloadHandler, public CefDisplayHandler, public CefLifeSpanHandler, public CefLoadHandler, public CefRequestHandler, public CefDialogHandler, public CefKeyboardHandler, public CefRenderHandler, public CefJSDialogHandler
 {
@@ -21,20 +23,25 @@ class MainHandler : public CefClient, public CefDownloadHandler, public CefDispl
     CefRefPtr<CefBrowser> Browser;
     bool IsVisible;
     BrowserData * Data;
+    PostManager * _PostManager;
     settings * Settings;
 
     int GetBrowserId();
     CefRefPtr<CefJSDialogCallback> ConfirmResult;
     long long ConfirmResultTime;
     bool ConfirmResultWait;
+    HandlersManager *_HandlersManager = 0;
 
 public:
     MainHandler();
     bool GetIsVisible();
     void SetData(BrowserData *Data);
+    void SetPostManager(PostManager *_PostManager);
     void SetSettings(settings *Settings);
     void SetIsPopup();
     bool GetIsPopup();
+    void SetHandlersManager(HandlersManager *_HandlersManager);
+
 
     virtual CefRefPtr<CefDisplayHandler> GetDisplayHandler() OVERRIDE;
     virtual CefRefPtr<CefLifeSpanHandler> GetLifeSpanHandler() OVERRIDE;
@@ -70,7 +77,7 @@ public:
     // CefLoadHandler methods:
     virtual void OnLoadError(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, ErrorCode errorCode, const CefString& errorText, const CefString& failedUrl) OVERRIDE;
     virtual void OnLoadEnd(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, int httpStatusCode) OVERRIDE;
-    virtual void OnLoadStart(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame) OVERRIDE;
+    //virtual void OnLoadStart(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame) OVERRIDE;
 
 
     // CefRequestHandler methods:
@@ -87,6 +94,8 @@ public:
     virtual bool GetViewRect(CefRefPtr<CefBrowser> browser, CefRect& rect) OVERRIDE;
     virtual void OnPaint(CefRefPtr<CefBrowser> browser, PaintElementType type, const RectList& dirtyRects, const void* buffer, int width, int height) OVERRIDE;
     virtual void OnScrollOffsetChanged(CefRefPtr<CefBrowser> browser,double x,double y) OVERRIDE;
+    virtual bool StartDragging(CefRefPtr<CefBrowser> browser,CefRefPtr<CefDragData> drag_data,DragOperationsMask allowed_ops,int x, int y) OVERRIDE;
+
 
     bool IsNeedQuit();
     void Hide();
